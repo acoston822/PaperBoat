@@ -100,6 +100,7 @@ extern "C" {
 void nuScCreateScheduler(uint8_t mode, uint8_t numFields);
 void create_audio_system(void);
 Acmd* alAudioFrame(Acmd* cmdList, int32_t* cmdLen, int16_t* outBuf, int32_t outLen);
+extern GameStatus* gGameStatusPtr;
 extern int32_t AlFrameSize;
 extern int32_t AlMinFrameSize;
 }
