@@ -11,6 +11,11 @@ if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
 
+if(PAPERPAD_APP_ROOT)
+    add_compile_options("-ffile-prefix-map=${PAPERPAD_APP_ROOT}=/paperpad"
+                        "-fdebug-prefix-map=${PAPERPAD_APP_ROOT}=/paperpad")
+endif()
+
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_EXTENSIONS ON)  # Enable GNU extensions (gnu99)
 set(CMAKE_CXX_STANDARD 20)
