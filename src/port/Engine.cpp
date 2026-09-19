@@ -1,3 +1,8 @@
+#ifdef PAPERPAD_APP
+extern "C" void PaperPadBoat_Ready();
+extern "C" void PaperPadBoat_Frame();
+extern "C" void PaperPadBoat_ReadController(void*);
+#endif
 #include "Engine.h"
 
 #include "ShipInit.hpp"
@@ -191,7 +196,7 @@ GameEngine::GameEngine() {
 #endif
 
     this->context = Ship::Context::CreateUninitializedInstance(
-        "Paperboat", "boat", Ship::Context::GetPathRelativeToAppDirectory("paperboat.cfg.json")
+        "Paperboat", "boat", "paperboat.cfg.json"
     );
     gShipContext = this->context;
 
@@ -828,6 +833,9 @@ void GameEngine::Create(int argc, char* argv[]) {
     PortEnhancements_Init();
     ShipInit::InitAll();
     instance->AudioInit();
+#ifdef PAPERPAD_APP
+    PaperPadBoat_Ready();
+#endif
 }
 
 bool GameEngine::sRelaunchRequested = false;
@@ -929,6 +937,14 @@ static void ApplyDPadAsLeftStick(bool enabled) {
 }
 
 void GameEngine::StartFrame() const {
+#ifdef PAPERPAD_APP
+    PaperPadBoat_Frame();
+    static int priorArea=-1, priorMap=-1, priorEntry=-1;
+    if (priorArea != gGameStatusPtr->areaID || priorMap != gGameStatusPtr->mapID || priorEntry != gGameStatusPtr->entryID) {
+        priorArea=gGameStatusPtr->areaID; priorMap=gGameStatusPtr->mapID; priorEntry=gGameStatusPtr->entryID;
+        SPDLOG_INFO("[paperpad-boat] game state area={} map={} entry={}", priorArea, priorMap, priorEntry);
+    }
+#endif
     // Process window events (keyboard/mouse/gamepad) BEFORE game logic reads
     // input. This fires the keyboard callbacks that set mKeyPressed state in
     // ControlDeck, so that WriteToPad() sees current key state when called from
@@ -1325,12 +1341,16 @@ extern "C" void GameEngine_ProcessGfxCommands(Gfx* commands) {
 
 // C-callable controller input reader
 extern "C" void GameEngine_ReadController(OSContPad* pads) {
+#ifdef PAPERPAD_APP
+    PaperPadBoat_ReadController(pads);
+#else
     auto controlDeck = Ship::Context::GetRawInstance()->GetControlDeck();
     if (controlDeck != nullptr) {
         controlDeck->WriteToPad(pads);
     }
     // Merges the on-screen controls into port 0; no-op unless enabled.
     TouchControls_ApplyPad(pads);
+#endif
 }
 
 // C-callable memory allocator

@@ -29,7 +29,9 @@ extern "C" void Graphics_PushFrame(Gfx* displayList) {
     GameEngine::ProcessGfxCommands(displayList);
 }
 
-#ifdef _WIN32
+#ifdef PAPERPAD_APP
+extern "C" int paperpad_boat_main(int argc, char** argv) {
+#elif defined(_WIN32)
 int SDL_main(int argc, char** argv) {
 #else
 #if defined(__cplusplus) && defined(PLATFORM_IOS)
