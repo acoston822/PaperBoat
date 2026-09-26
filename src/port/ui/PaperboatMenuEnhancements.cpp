@@ -36,6 +36,10 @@ void PaperboatMenu::AddMenuEnhancements() {
     AddSidebarEntry("Enhancements", path.sidebarName, 1);
     path.column = SECTION_COLUMN_1;
 
+    AddWidget(path, "Sprint Button", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_ENHANCEMENT("SprintButton"))
+        .Options(CheckboxOptions().Tooltip("Hold R to move at double speed in the overworld."));
+
     // Enhancements > Graphics
     path = { "Enhancements", "Graphics", SECTION_COLUMN_1 };
     AddSidebarEntry("Enhancements", "Graphics", 1);

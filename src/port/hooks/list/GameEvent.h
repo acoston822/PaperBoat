@@ -35,3 +35,9 @@ DEFINE_EVENT(OnPostSaveFileLoad);
 
 // Battle
 DEFINE_EVENT(OnBattleEffectsRemoved);
+
+// World
+DEFINE_EVENT(OnPlayerSpeedUpdate,
+    float* walkSpeed;
+    float* runSpeed;
+);
