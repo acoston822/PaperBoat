@@ -227,15 +227,15 @@ void appendGfx_darkness_stencil(b32 isWorld, s32 posX, s32 posY, f32 alpha, f32 
                             camera->viewportStartX * 4, camera->viewportStartY * 4,
                             (camera->viewportStartX + camera->viewportW) * 4, (camera->viewportStartY + camera->viewportH) * 4,
                             G_TX_RENDERTILE,
-                            (12 - posX) * 32.0f / texScale + 16.0f + 1024.0f, (19 - posY) * 32.0f / texScale + 16.0f + 1024.0f,
-                            1024.0f / texScale, 1024.0f / texScale);
+                            (s32)((12 - posX) * 32.0f / texScale + 16.0f + 1024.0f), (s32)((19 - posY) * 32.0f / texScale + 16.0f + 1024.0f),
+                            (s32)(1024.0f / texScale), (s32)(1024.0f / texScale));
     } else {
         gSPTextureRectangle(gMainGfxPos++,
                             camera->viewportStartX * 4, camera->viewportStartY * 4,
                             (camera->viewportStartX + camera->viewportW) * 4, (camera->viewportStartY + camera->viewportH) * 4,
                             G_TX_RENDERTILE,
-                            (9 - posX) * 32.0f / texScale + 1024.0f, (32 - posY) * 32.0f / texScale + 1024.0f,
-                            1024.0f / texScale, 1024.0f / texScale);
+                            (s32)((9 - posX) * 32.0f / texScale + 1024.0f), (s32)((32 - posY) * 32.0f / texScale + 1024.0f),
+                            (s32)(1024.0f / texScale), (s32)(1024.0f / texScale));
     }
 }
 
@@ -281,8 +281,13 @@ void appendGfx_screen_transition_stencil(s32 arg0, s32 arg1, f32 progress, s32 p
     }
     gDPSetPrimColor(gMainGfxPos++, 0, 0, primR, primG, primB, primA);
     texScale = (255.0f - progress) * 10.5f / 255.0f + 0.09; // range from
+    // The texrect S/T/dsdx/dtdy are packed with (u32)(float) in _SHIFTL. Negative
+    // floats cast to u32 are undefined: x86 wraps (the intended two's-complement
+    // s16), but ARM64 (iOS) saturates to 0, which pinned the shrinking
+    // Mario/star/spotlight wipe to the top-left. Convert via s32 first.
     gSPWideTextureRectangle(gMainGfxPos++, rectLeft * 4, y1 * 4, rectRight * 4, y2 * 4, G_TX_RENDERTILE,
-                        (t5 - arg0) * 32.0f / texScale + 16.0f + 1024.0f, (t6 - arg1) * 32.0f / texScale + 16.0f + 1024.0f,
-                        1024.0f / texScale, 1024.0f / texScale);
+                        (s32)((t5 - arg0) * 32.0f / texScale + 16.0f + 1024.0f),
+                        (s32)((t6 - arg1) * 32.0f / texScale + 16.0f + 1024.0f),
+                        (s32)(1024.0f / texScale), (s32)(1024.0f / texScale));
     gDPPipeSync(gMainGfxPos++);
 }
