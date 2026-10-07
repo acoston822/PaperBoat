@@ -34,6 +34,13 @@
 	<true/>
 	<key>UISupportsDocumentBrowser</key>
 	<true/>
+	<!-- Opt in to iOS Game Mode so sideloaded copies run at full speed. -->
+	<key>GCSupportsGameMode</key>
+	<true/>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.games</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>UILaunchStoryboardName</key>
