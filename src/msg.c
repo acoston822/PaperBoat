@@ -1980,7 +1980,7 @@ void draw_msg(intptr_t msgID, s32 posX, s32 posY, s32 opacity, s32 palette, u8 s
             printer->srcBuffer = (u8*)msgID;
         } else {
             printer->srcBuffer = load_msg_asset(msgID);
-            get_msg_properties((intptr_t) printer->srcBuffer, 0, &width, 0, 0, 0, 0, charset);
+            get_msg_properties(msgID, 0, &width, 0, 0, 0, 0, charset);
             printer->msgWidth = width;
         }
 
@@ -2178,7 +2178,8 @@ void draw_digit(IMG_PTR img, s32 charset, s32 posX, s32 posY) {
         G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,
         G_TX_NOMASK, G_TX_NOMASK,
         G_TX_NOLOD, G_TX_NOLOD);
-    gSPWideTextureRectangle(gMainGfxPos++,
+//  gSPWideTextureRectangle(gMainGfxPos++,
+    port_wide_texture_rectangle(
         4 * posX, 4 * posY,
         4 * (posX + num->texWidth), 4 * (posY + num->texHeight),
         G_TX_RENDERTILE,

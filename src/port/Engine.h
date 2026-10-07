@@ -81,11 +81,11 @@ class GameEngine {
 
     GameEngine();
     void StartFrame() const;
+    void RenderGuiFrame() const;
+    static void DrainRenderService();
+    static void ShutdownRenderService();
     static bool GenAssetFile(bool exitOnFail = true);
     static void Create(int argc, char* argv[]);
-    static void HandleAudioThread();
-    static void StartAudioFrame();
-    static void EndAudioFrame();
     static void AudioInit();
     static void AudioExit();
     void FinishInit();
@@ -112,16 +112,10 @@ class GameEngine {
     mutable bool mPrevAltAssets = false;
     mutable bool mPrevDPadAsLeftStick = false;
     mutable bool mPrevAutoMipmaps = true;
+    mutable bool mPrevMipmaps = true;
 
     static struct {
-        std::thread thread;
-        std::mutex mutex;
-        std::condition_variable cv_to_thread;
-        std::condition_variable cv_from_thread;
         bool running = false;
-        bool processing = false;
-        // Audio pacing shortfall, in thirds of a sample.
-        int32_t sampleDebtThirds = 0;
     } mAudio;
 };
 
@@ -147,28 +141,16 @@ void GameEngine_ProcessGfxCommands(void* commands);
 void GameEngine_LogInfo(const char* fmt, ...);
 void GameEngine_LogStackTrace(const char* label);
 
-// Controller input - reads all 4 pads from libultraship ControlDeck
-#ifdef __cplusplus
-void GameEngine_ReadController(OSContPad* pads);
-#else
-void GameEngine_ReadController(void* pads);
-#endif
-
 // Invalidate GPU texture cache entry for a specific RAM address.
 // Call when player raster cache overwrites a buffer with new image data,
 // since the Fast3D interpreter caches textures by pointer address.
 void GameEngine_InvalidateTextureCache(const void* addr);
+// Start decoding an "__OTR__" path's HD texture before it gets drawn
+void GameEngine_PrefetchTexture(const char* path);
 void gfx_texture_cache_clear(void);
 
-// Save file path - returns path to "pm64.sav" in app directory
-// Buffer must be at least 512 bytes. Returns 0 on success, -1 on failure.
-int GameEngine_GetSaveFilePath(char* buf, int bufSize);
-
-// Clear the GPU depth buffer (replaces N64 gDPSetColorImage-to-ZBuffer hack)
-void GameEngine_ClearDepthBuffer(void);
-
-// Pace one game frame without presenting.
-void GameEngine_HoldFrame(void);
+void port_nuGfxOnSubmit(void* task);
+void port_runOnRenderThread(void (*fn)(void*), void* arg);
 
 #ifdef __cplusplus
 }

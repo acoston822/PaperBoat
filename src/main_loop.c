@@ -130,6 +130,9 @@ void step_game_loop(void) {
                 SoftResetDelay--;
                 if (SoftResetDelay == 0) {
                     sfx_stop_env_sounds();
+                    u8 contBitPattern = gGameStatus.contBitPattern;
+                    mem_clear(&gGameStatus, sizeof(gGameStatus));
+                    gGameStatus.contBitPattern = contBitPattern;
                     set_game_mode(GAME_MODE_STARTUP);
                     gOverrideFlags &= ~GLOBAL_OVERRIDES_SOFT_RESET;
                 }
@@ -182,6 +185,8 @@ void gfx_task_background(void) {
     ASSERT((s32)((u32)((gMainGfxPos - gDisplayContext->backgroundGfx) << 3) >> 3) < ARRAY_COUNT(
                gDisplayContext->backgroundGfx))
 
+    nuGfxTaskStart(&gDisplayContext->backgroundGfx[0], (u32)(gMainGfxPos - gDisplayContext->backgroundGfx) * 8,
+                   NU_GFX_UCODE_F3DEX2, NU_SC_NOSWAPBUFFER);
 }
 
 void gfx_draw_frame(void) {
@@ -191,9 +196,7 @@ void gfx_draw_frame(void) {
     gMainGfxPos = &gDisplayContext->mainGfx[0];
 
     if (gOverrideFlags & GLOBAL_OVERRIDES_DISABLE_DRAW_FRAME) {
-        // Still need to end the DL even if skipping render
-        gSPEndDisplayList(gMainGfxPos++);
-        // NOTE: context toggle moved to Graphics_ThreadUpdate
+        gCurrentDisplayContextIndex = gCurrentDisplayContextIndex ^ 1;
         return;
     }
 
@@ -214,7 +217,9 @@ void gfx_draw_frame(void) {
     }
     FrameInterpolation_RecordCloseChild();
 
+    FrameInterpolation_RecordOpenChild("gfx_interact_prompts", 0);
     player_render_interact_prompts();
+    FrameInterpolation_RecordCloseChild();
     //func_802C3EE4();
 
     GFX_PROFILER_SWITCH(PROFILER_TIME_SUB_GFX_HUD_ELEMENTS, PROFILER_TIME_SUB_GFX_BACK_UI);
@@ -305,6 +310,9 @@ void gfx_draw_frame(void) {
     gDPFullSync(gMainGfxPos++);
     gSPEndDisplayList(gMainGfxPos++);
 
+    nuGfxTaskStart(gDisplayContext->mainGfx, (u32)(gMainGfxPos - gDisplayContext->mainGfx) * 8, NU_GFX_UCODE_F3DEX2,
+                   NU_SC_TASK_LODABLE | NU_SC_SWAPBUFFER);
+    gCurrentDisplayContextIndex = gCurrentDisplayContextIndex ^ 1;
     crash_screen_set_draw_info(nuGfxCfb_ptr, SCREEN_WIDTH, SCREEN_HEIGHT);
 }
 

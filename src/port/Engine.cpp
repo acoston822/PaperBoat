@@ -15,10 +15,12 @@ extern "C" void PaperPadBoat_ReadController(void*);
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/ui/cvar_prefixes.h"
 #include "port/audio/AudioVolume.h"
+#include "port/os/OS.h"
+#include "port/DevTools/ThreadWatchdog.h"
+#include "port/TextureCache.h"
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
 #include "ui/PaperboatModMenuWindow.h"
-#include "ui/TouchControls.h"
 #ifdef __EMSCRIPTEN__
 #include "port/web/WebUtils.h"
 #endif
@@ -99,6 +101,7 @@ decltype(GameEngine::mAudio) GameEngine::mAudio;
 extern "C" {
 void nuScCreateScheduler(uint8_t mode, uint8_t numFields);
 void create_audio_system(void);
+void nuAuMgr(void* arg);
 Acmd* alAudioFrame(Acmd* cmdList, int32_t* cmdLen, int16_t* outBuf, int32_t outLen);
 extern GameStatus* gGameStatusPtr;
 extern int32_t AlFrameSize;
@@ -113,6 +116,11 @@ extern int32_t AlMinFrameSize;
 // Gfx is already defined in libultraship's gbi.h (included via libultraship.h)
 extern "C" {
 extern Gfx* gMainGfxPos;
+}
+
+// nusys's count of graphics tasks the game has submitted that haven't finished drawing
+extern "C" {
+extern volatile uint32_t nuGfxTaskSpool;
 }
 
 static bool portArchiveExists = false;
@@ -196,9 +204,7 @@ GameEngine::GameEngine() {
     AllocConsole();
 #endif
 
-    this->context = Ship::Context::CreateUninitializedInstance(
-        "Paperboat", "boat", "paperboat.cfg.json"
-    );
+    this->context = Ship::Context::CreateUninitializedInstance("Paperboat", "boat", "paperboat.cfg.json");
     gShipContext = this->context;
 
     this->context->InitLogging();
@@ -215,6 +221,16 @@ GameEngine::GameEngine() {
 
     gsFast3dWindow = std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({}));
     this->context->InitWindow(gsFast3dWindow);
+    if (auto interpreter = gsFast3dWindow->GetInterpreterWeak().lock()) {
+        // Prefetch a replacement's folder on its first draw. Sprites, map textures and
+        // backgrounds are prefetched by whatever loads them instead.
+        interpreter->SetReplacementGroupResolver([](const std::string& name) -> std::string {
+            if (name.starts_with("sprites/") || name.starts_with("textures/") || name.starts_with("backgrounds/")) {
+                return {};
+            }
+            return name.substr(0, name.find_last_of('/') + 1);
+        });
+    }
     this->context->InitFileDropMgr();
 
     PaperboatGui::SetupMenu();
@@ -273,6 +289,7 @@ void GameEngine::FinishInit() {
             interpreter->SetResolvedResourceCacheEnabled(true);
         }
     }
+    TextureCache_Configure();
 
     auto loader = Ship::Context::GetRawInstance()->GetResourceManager()->GetResourceLoader();
     loader->RegisterResourceFactory(
@@ -946,10 +963,6 @@ void GameEngine::StartFrame() const {
         SPDLOG_INFO("[paperpad-boat] game state area={} map={} entry={}", priorArea, priorMap, priorEntry);
     }
 #endif
-    // Process window events (keyboard/mouse/gamepad) BEFORE game logic reads
-    // input. This fires the keyboard callbacks that set mKeyPressed state in
-    // ControlDeck, so that WriteToPad() sees current key state when called from
-    // update_input().
     Ship::Context::GetRawInstance()->GetWindow()->HandleEvents();
 
     const bool altAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0) != 0;
@@ -958,6 +971,14 @@ void GameEngine::StartFrame() const {
         Ship::Context::GetRawInstance()->GetResourceManager()->SetAltAssetsEnabled(altAssets);
         //  gfx_texture_cache_clear();
         SPDLOG_INFO("Alt assets {}", altAssets ? "enabled" : "disabled");
+        // Decode alt menu assets so they can draw more quickly.
+        if (altAssets && gsFast3dWindow != nullptr) {
+            if (auto interpreter = gsFast3dWindow->GetInterpreterWeak().lock()) {
+                for (const char* group : { "misc/pause/", "ui/pause/" }) {
+                    interpreter->PrefetchReplacementGroup(group);
+                }
+            }
+        }
     }
 
     const bool dpadAsLeftStick = CVarGetInteger(CVAR_SETTING("Controls.DPadAsLeftStick"), 0) != 0;
@@ -977,6 +998,17 @@ void GameEngine::StartFrame() const {
             }
         }
         SPDLOG_INFO("HD auto-mipmaps {}", autoMipmaps ? "enabled" : "disabled");
+    }
+
+    const bool mipmaps = CVarGetInteger("gEnhancements.Graphics.DisableMipmaps", 0) == 0;
+    if (mipmaps != mPrevMipmaps) {
+        mPrevMipmaps = mipmaps;
+        if (gsFast3dWindow != nullptr) {
+            if (auto interpreter = gsFast3dWindow->GetInterpreterWeak().lock()) {
+                interpreter->SetMipmapsEnabled(mipmaps);
+            }
+        }
+        SPDLOG_INFO("Mipmaps {}", mipmaps ? "enabled" : "disabled");
     }
 
     using Ship::KbScancode;
@@ -1017,107 +1049,12 @@ uint32_t GameEngine::GetInterpolationFPS() {
 
 // Audio
 
-void GameEngine::HandleAudioThread() {
-    int16_t audioBuffer[AUDIO_SAMPLES * 4 * 2];
-    Acmd cmdList[0x800];
-
-    while (mAudio.running) {
-        {
-            std::unique_lock<std::mutex> lock(mAudio.mutex);
-            while (!mAudio.processing && mAudio.running) {
-                mAudio.cv_to_thread.wait(lock);
-            }
-            if (!mAudio.running)
-                break;
-        }
-
-        // A 60Hz tick owes 1600/3 samples at 32kHz, and alAudioFrame only renders
-        // whole AUDIO_SAMPLES blocks
-        auto produceFrame = [&]() {
-            int32_t cmdLen = 0;
-            int32_t frameSamples = (mAudio.sampleDebtThirds > 0) ? AlFrameSize : AlMinFrameSize;
-            mAudio.sampleDebtThirds += 1600 - 3 * frameSamples;
-
-            int byteLen = frameSamples * 2 * sizeof(int16_t);
-
-            memset(audioBuffer, 0, byteLen);
-
-            alAudioFrame(cmdList, &cmdLen, audioBuffer, frameSamples);
-
-            float master = AudioVolume_GetMaster();
-            if (master != 1.0f) {
-                int sampleCount = byteLen / (int) sizeof(int16_t);
-                for (int i = 0; i < sampleCount; i++) {
-                    audioBuffer[i] = (int16_t) (audioBuffer[i] * master);
-                }
-            }
-
-            int32_t before = AudioPlayerBuffered();
-            AudioPlayerPlayFrame((uint8_t*) audioBuffer, byteLen);
-
-            bool accepted = AudioPlayerBuffered() >= before + (frameSamples / 2);
-            if (accepted && before == 0) {
-                SPDLOG_WARN("audio queue underran");
-            }
-        };
-
-        // Two ticks per game frame, matching N64's 60Hz audio thread.
-        for (int pass = 0; pass < 2; pass++) {
-            if (AudioPlayerBuffered() > 2 * AudioPlayerGetDesiredBuffered()) {
-                break;
-            }
-            produceFrame();
-        }
-
-        // Refill after a map load drained the queue; exact pacing has no surplus to
-        // recover with. Bounded so a stalled device cannot wedge EndAudioFrame.
-        for (int guard = 0; guard < 32 && mAudio.running; guard++) {
-            if (AudioPlayerBuffered() + AlFrameSize >= AudioPlayerGetDesiredBuffered()) {
-                break;
-            }
-            produceFrame();
-        }
-
-        {
-            std::unique_lock<std::mutex> lock(mAudio.mutex);
-            mAudio.processing = false;
-        }
-        mAudio.cv_from_thread.notify_one();
-    }
-}
-
-void GameEngine::StartAudioFrame() {
-    if (!mAudio.running)
-        return;
-
-    AudioVolume_Update();
-
-    {
-        std::unique_lock<std::mutex> lock(mAudio.mutex);
-        mAudio.processing = true;
-    }
-    mAudio.cv_to_thread.notify_one();
-}
-
-void GameEngine::EndAudioFrame() {
-    if (!mAudio.running)
-        return;
-
-    std::unique_lock<std::mutex> lock(mAudio.mutex);
-    while (mAudio.processing) {
-        mAudio.cv_from_thread.wait(lock);
-    }
-}
-
 void GameEngine::AudioInit() {
     SPDLOG_INFO("Initializing audio system...");
 
     // NTSC: retraceCount=1 → AlFrameSize=552 (3 chunks of 184 samples)
     // Must be set before create_audio_system() which reads nusched.retraceCount
     nuScCreateScheduler(0, 1);
-
-    // Initialize the game's audio system
-    create_audio_system();
 
     // Start at the target queue depth; an empty queue underruns on the first
     // hitch before it has had a chance to build.
@@ -1126,10 +1063,12 @@ void GameEngine::AudioInit() {
         AudioPlayerPlayFrame(silence.data(), silence.size());
     }
 
-    // Start the audio thread
+    OS_EnableThreadEntry((void*) nuAuMgr);
+
+    create_audio_system();
+
+    ThreadWatchdog_Start();
     mAudio.running = true;
-    mAudio.processing = false;
-    mAudio.thread = std::thread(&GameEngine::HandleAudioThread);
 
     SPDLOG_INFO("Audio system initialized");
 }
@@ -1138,18 +1077,14 @@ void GameEngine::AudioExit() {
     if (mAudio.running) {
         SPDLOG_INFO("Shutting down audio system...");
 
-        // Signal thread to stop
-        {
-            std::unique_lock<std::mutex> lock(mAudio.mutex);
-            mAudio.running = false;
-            mAudio.processing = true; // Wake up the thread
-        }
-        mAudio.cv_to_thread.notify_one();
+        mAudio.running = false;
 
-        // Wait for thread to finish
-        if (mAudio.thread.joinable()) {
-            mAudio.thread.join();
-        }
+        OS_RequestThreadExit();
+        port_auBackendGone();
+        port_auBgmLock();
+        port_auBgmUnlock();
+        OS_JoinDecompThreads();
+        ThreadWatchdog_Stop();
 
         SPDLOG_INFO("Audio system shut down");
     }
@@ -1169,8 +1104,15 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
 
     interpreter->mInterpolationIndex = 0;
 
-    for (const auto& m : mtx_replacements) {
-        wnd->DrawAndRunGraphicsCommands(Commands, m, {});
+    for (size_t i = 0; i < mtx_replacements.size(); i++) {
+        // The game has queued its next frame, so we're behind: skip to this frame's last draw
+        // rather than leaving the game to skip drawing a whole frame.
+        if (i + 1 < mtx_replacements.size() && nuGfxTaskSpool >= 2) {
+            interpreter->mInterpolationIndex++;
+            continue;
+        }
+        wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements[i], {});
+        OS_ViNotifyPresent();
         interpreter->mInterpolationIndex++;
     }
 }
@@ -1323,50 +1265,94 @@ extern "C" uint8_t GameEngine_OTRSigCheck(const char* data) {
     return strncmp(data, sOtrSignature, strlen(sOtrSignature)) == 0;
 }
 
-// C-callable audio frame hooks
-extern "C" void GameEngine_StartAudioFrame(void) {
-    GameEngine::StartAudioFrame();
-}
-
-extern "C" void GameEngine_EndAudioFrame(void) {
-    GameEngine::EndAudioFrame();
-}
-
-// Pace an iteration that presents nothing (see GLOBAL_OVERRIDES_DISABLE_DRAW_FRAME
-// in Graphics_ThreadUpdate).
-extern "C" void GameEngine_HoldFrame(void) {
-    using namespace std::chrono;
-    static steady_clock::time_point sNextHold;
-
-    constexpr auto kGameFrame = duration_cast<steady_clock::duration>(duration<double>(1.0 / 30.0));
-
-    const auto now = steady_clock::now();
-    if (sNextHold < now) {
-        sNextHold = now;
-    }
-    sNextHold += kGameFrame;
-    std::this_thread::sleep_until(sNextHold);
-}
-
 // C-callable wrapper for processing graphics commands
 extern "C" void GameEngine_ProcessGfxCommands(Gfx* commands) {
-    std::vector<std::unordered_map<Mtx*, MtxF>> mtx_replacements;
-    mtx_replacements.push_back({}); // Empty map for now, interpolation can be added later
-    GameEngine::RunCommands(commands, mtx_replacements);
+    GameEngine::ProcessGfxCommands(commands);
 }
 
-// C-callable controller input reader
-extern "C" void GameEngine_ReadController(OSContPad* pads) {
-#ifdef PAPERPAD_APP
-    PaperPadBoat_ReadController(pads);
-#else
-    auto controlDeck = Ship::Context::GetRawInstance()->GetControlDeck();
-    if (controlDeck != nullptr) {
-        controlDeck->WriteToPad(pads);
+// Renderer calls from tick code come through here
+namespace {
+std::mutex sSvcMutex;
+std::condition_variable sSvcCv;
+void (*sSvcFn)(void*) = nullptr;
+void* sSvcArg = nullptr;
+std::atomic<bool> sSvcShutdown { false };
+SDL_threadID sWindowThread = 0;
+std::mutex sInvalidateMutex;
+std::vector<const void*> sInvalidateAddrs;
+} // namespace
+
+void GameEngine::DrainRenderService() {
+    if (sWindowThread == 0) {
+        sWindowThread = SDL_ThreadID();
     }
-    // Merges the on-screen controls into port 0; no-op unless enabled.
-    TouchControls_ApplyPad(pads);
-#endif
+    {
+        std::vector<const void*> addrs;
+        {
+            std::lock_guard<std::mutex> lock(sInvalidateMutex);
+            addrs.swap(sInvalidateAddrs);
+        }
+        if (!addrs.empty()) {
+            if (auto interp = gsFast3dWindow != nullptr ? gsFast3dWindow->GetInterpreterWeak().lock() : nullptr) {
+                for (const void* addr : addrs) {
+                    interp->TextureCacheDelete(reinterpret_cast<const uint8_t*>(addr));
+                }
+            }
+        }
+    }
+    std::unique_lock<std::mutex> lock(sSvcMutex);
+    if (sSvcFn != nullptr) {
+        auto* fn = sSvcFn;
+        void* arg = sSvcArg;
+        lock.unlock();
+        fn(arg);
+        lock.lock();
+        sSvcFn = nullptr;
+        sSvcCv.notify_all();
+    }
+}
+
+void GameEngine::ShutdownRenderService() {
+    {
+        std::lock_guard<std::mutex> lock(sSvcMutex);
+        sSvcShutdown.store(true, std::memory_order_release);
+        sSvcFn = nullptr;
+    }
+    sSvcCv.notify_all();
+}
+
+extern "C" void port_runOnRenderThread(void (*fn)(void*), void* arg) {
+    if (sWindowThread == 0 || SDL_ThreadID() == sWindowThread) {
+        fn(arg);
+        return;
+    }
+    std::unique_lock<std::mutex> lock(sSvcMutex);
+    auto done = [] { return sSvcFn == nullptr || sSvcShutdown.load(std::memory_order_acquire); };
+    if (sSvcShutdown.load(std::memory_order_acquire)) {
+        return;
+    }
+    sSvcCv.wait(lock, done);
+    if (sSvcShutdown.load(std::memory_order_acquire)) {
+        return;
+    }
+    sSvcFn = fn;
+    sSvcArg = arg;
+    sSvcCv.wait(lock, done);
+}
+
+// The extraction loop's frame
+void GameEngine::RenderGuiFrame() const {
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
+    auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
+    if (wnd == nullptr || gui == nullptr || !wnd->IsFrameReady()) {
+        return;
+    }
+    gui->StartDraw();
+    wnd->StartFrame();
+    wnd->RunGuiOnly();
+    gui->EndDraw();
+    wnd->EndFrame();
+    OS_ViNotifyPresent();
 }
 
 // C-callable memory allocator
@@ -1441,40 +1427,20 @@ extern "C" void GameEngine_LogStackTrace(const char* label) {
 #endif
 }
 
+extern "C" void GameEngine_PrefetchTexture(const char* path) {
+    if (path != nullptr && GameEngine_OTRSigCheck(path) && gsFast3dWindow != nullptr) {
+        if (auto interpreter = gsFast3dWindow->GetInterpreterWeak().lock()) {
+            interpreter->PrefetchReplacement(path + 7); // past "__OTR__"
+        }
+    }
+}
+
 extern "C" void GameEngine_InvalidateTextureCache(const void* addr) {
     if (addr == nullptr) {
         return;
     }
-    auto window = Ship::Context::GetRawInstance()->GetWindow();
-    if (window != nullptr) {
-        auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(window);
-        if (fast3d != nullptr) {
-            auto interp = fast3d->GetInterpreterWeak().lock();
-            if (interp != nullptr) {
-                interp->TextureCacheDelete(reinterpret_cast<const uint8_t*>(addr));
-            }
-        }
-    }
-}
-
-extern "C" int GameEngine_GetSaveFilePath(char* buf, int bufSize) {
-    std::string path = Ship::Context::GetPathRelativeToAppDirectory("default.sav");
-    if ((int) path.size() >= bufSize) {
-        return -1;
-    }
-    strncpy(buf, path.c_str(), bufSize);
-    buf[bufSize - 1] = '\0';
-    return 0;
-}
-
-extern "C" void GameEngine_ClearDepthBuffer(void) {
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
-    if (wnd) {
-        auto interp = wnd->GetInterpreterWeak().lock();
-        if (interp) {
-            interp->GetCurrentRenderingAPI()->ClearFramebuffer(false, true);
-        }
-    }
+    std::lock_guard<std::mutex> lock(sInvalidateMutex);
+    sInvalidateAddrs.push_back(addr);
 }
 
 // ---------------------------------------------------------------------------

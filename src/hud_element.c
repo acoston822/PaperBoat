@@ -3,6 +3,7 @@
 #include "nu/nusys.h"
 #include "ld_addrs.h"
 #include "port/Engine.h"
+#include "port/patches/Patches.h"
 
 #define MAX_HUD_CACHE_ENTRIES 192
 
@@ -375,7 +376,7 @@ void hud_element_draw_rect(HudElement* hudElement, s16 texSizeX, s16 texSizeY, s
             texStartY = 0;
         }
 
-        if (lry < 0 || uly > SCREEN_HEIGHT) {
+        if (lry < 0 || uly >= SCREEN_HEIGHT) {
             break;
         }
 
@@ -398,6 +399,10 @@ void hud_element_draw_rect(HudElement* hudElement, s16 texSizeX, s16 texSizeY, s
             isLastTileY = true;
         }
 
+        if (lrt < ult) {
+            break;
+        }
+
         isLastTileX = false;
         uls = 0;
         ulx = baseX;
@@ -410,7 +415,7 @@ void hud_element_draw_rect(HudElement* hudElement, s16 texSizeX, s16 texSizeY, s
                 texStartX = 0;
             }
 
-            if (lrx < wsClipLeft || ulx > wsClipRight) {
+            if (lrx < wsClipLeft || ulx >= wsClipRight) {
                 break;
             }
 
@@ -431,6 +436,10 @@ void hud_element_draw_rect(HudElement* hudElement, s16 texSizeX, s16 texSizeY, s
                     lrx = baseX + drawSizeX;
                 }
                 isLastTileX = true;
+            }
+
+            if (lrs < uls) {
+                break;
             }
 
             gDPPipeSync(gMainGfxPos++);
@@ -553,9 +562,11 @@ void hud_element_draw_rect(HudElement* hudElement, s16 texSizeX, s16 texSizeY, s
             }
 
             if (hudElement->flags & HUD_ELEMENT_FLAG_FILTER_TEX) {
-                gSPWideTextureRectangle(gMainGfxPos++, ulx * 4, uly * 4, lrx * 4, lry * 4, 0, texStartX * 32 + 16, texStartY * 32 + 16, widthScale, heightScale);
+//              gSPWideTextureRectangle(gMainGfxPos++, ulx * 4, uly * 4, lrx * 4, lry * 4, 0, texStartX * 32 + 16, texStartY * 32 + 16, widthScale, heightScale);
+                port_wide_texture_rectangle(ulx * 4, uly * 4, lrx * 4, lry * 4, 0, texStartX * 32 + 16, texStartY * 32 + 16, widthScale, heightScale);
             } else {
-                gSPWideTextureRectangle(gMainGfxPos++, ulx * 4, uly * 4, lrx * 4, lry * 4, 0, texStartX * 32, texStartY * 32, widthScale, heightScale);
+//              gSPWideTextureRectangle(gMainGfxPos++, ulx * 4, uly * 4, lrx * 4, lry * 4, 0, texStartX * 32, texStartY * 32, widthScale, heightScale);
+                port_wide_texture_rectangle(ulx * 4, uly * 4, lrx * 4, lry * 4, 0, texStartX * 32, texStartY * 32, widthScale, heightScale);
             }
             if (isLastTileX) {
                 break;
@@ -666,7 +677,7 @@ void init_hud_element_list(void) {
 }
 
 void hud_element_setup_cam(void) {
-    set_cam_viewport(CAM_HUD, 0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
+    set_cam_viewport(CAM_HUD, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     gCameras[CAM_HUD].updateMode = CAM_UPDATE_INTERP_POS;
     gCameras[CAM_HUD].needsInit = true;
     gCameras[CAM_HUD].params.interp.dist = 15551;
@@ -1663,7 +1674,7 @@ void render_transformed_hud_elements(void) {
                         }
                     }
 
-                    gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 12, 20, 308, 220);
+                    gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 12, port_hud_clip_top(), 308, port_hud_clip_bottom());
                     gDPPipeSync(gMainGfxPos++);
                     gSPClearGeometryMode(gMainGfxPos++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD | G_SHADING_SMOOTH);
                     gSPSetGeometryMode(gMainGfxPos++, G_ZBUFFER | G_SHADE | G_LIGHTING | G_SHADING_SMOOTH);
@@ -1728,7 +1739,7 @@ void render_transformed_hud_elements(void) {
                         }
                     }
 
-                    gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 12, 20, 308, 220);
+                    gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 12, port_hud_clip_top(), 308, port_hud_clip_bottom());
                     gDPPipeSync(gMainGfxPos++);
                     gSPClearGeometryMode(gMainGfxPos++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD | G_SHADING_SMOOTH);
                     gSPSetGeometryMode(gMainGfxPos++, G_ZBUFFER | G_SHADE | G_LIGHTING | G_SHADING_SMOOTH);
@@ -1768,9 +1779,14 @@ void immediately_render_complex_hud_element(s32 elemID, s32 arg1, s32 camID) {
         gDPSetRenderMode(gMainGfxPos++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
         gSPClipRatio(gMainGfxPos++, FRUSTRATIO_2);
         gDPPipeSync(gMainGfxPos++);
-        // N64: clear Z buffer by redirecting color image to Z buffer + fill rectangle.
-        // PORT: use proper GPU depth clear instead (the N64 hack writes to framebuffer on port).
-        GameEngine_ClearDepthBuffer();
+        //clear Z buffer inside camera viewport
+        gDPSetCycleType(gMainGfxPos++, G_CYC_FILL);
+        gDPSetDepthImage(gMainGfxPos++, osVirtualToPhysical(nuGfxZBuffer));
+        gDPSetColorImage(gMainGfxPos++, G_IM_FMT_RGBA, G_IM_SIZ_16b, SCREEN_WIDTH, osVirtualToPhysical(nuGfxZBuffer));
+        gDPSetFillColor(gMainGfxPos++, GPACK_ZDZ(G_MAXFBZ, 0)<<16 | GPACK_ZDZ(G_MAXFBZ, 0));
+        gDPFillRectangle(gMainGfxPos++, camera->viewportStartX, camera->viewportStartY,
+                         camera->viewportStartX + camera->viewportW - 1,
+                         camera->viewportStartY + camera->viewportH - 1);
         gDPPipeSync(gMainGfxPos++);
 
         gDPSetColorImage(gMainGfxPos++, G_IM_FMT_RGBA, G_IM_SIZ_16b, SCREEN_WIDTH, osVirtualToPhysical(nuGfxCfb_ptr));
@@ -1781,7 +1797,7 @@ void immediately_render_complex_hud_element(s32 elemID, s32 arg1, s32 camID) {
 
         gSPMatrix(gMainGfxPos++, &gDisplayContext->camPerspMatrix[gCurrentCamID], G_MTX_NOPUSH | G_MTX_LOAD |
                                                                                     G_MTX_PROJECTION);
-        gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 12, 20, 308, 220);
+        gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 12, port_hud_clip_top(), 308, port_hud_clip_bottom());
         gDPPipeSync(gMainGfxPos++);
         gDPSetCycleType(gMainGfxPos++, G_CYC_1CYCLE);
         gSPClearGeometryMode(gMainGfxPos++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING |
@@ -1857,8 +1873,8 @@ void draw_hud_element_internal(s32 id, s32 clipMode) {
             if (clipMode != HUD_ELEMENT_DRAW_NEXT) {
                 if (clipMode == HUD_ELEMENT_DRAW_FIRST_WITH_CLIPPING) {
                     gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE,
-                                  OTRGetScissorCoordX(OTRGetRectDimensionFromLeftEdge(12)), 20,
-                                  OTRGetScissorCoordX(OTRGetRectDimensionFromRightEdge(12)), SCREEN_HEIGHT - 20);
+                                  OTRGetScissorCoordX(OTRGetRectDimensionFromLeftEdge(12)), port_hud_clip_top(),
+                                  OTRGetScissorCoordX(OTRGetRectDimensionFromRightEdge(12)), port_hud_clip_bottom());
                 }
                 gDPPipeSync(gMainGfxPos++);
                 gDPSetCycleType(gMainGfxPos++, G_CYC_1CYCLE);

@@ -6,6 +6,7 @@
 #include "assets/ui.h"
 #include "port/Engine.h"
 #include "port/patches/Patches.h"
+#include "port/hooks/Events.h"
 
 //TODO get a real ceil
 s32 my_ceil(f32 f) {
@@ -13,7 +14,6 @@ s32 my_ceil(f32 f) {
 }
 
 // ui_msg_* symbols provided by assets/ui.h (OTR paths)
-extern unsigned char ui_msg_palettes[16][32];
 
 typedef MessageImageData* MessageImageDataList[1];
 
@@ -904,6 +904,7 @@ void appendGfx_message(MessagePrintState* printer, s16 posX, s16 posY, u16 addit
                         msg_drawState->msgScale.y = 1.0f;
                         msg_drawState->drawBufferPos++;
                         gDPSetTextureFilter(gMainGfxPos++, G_TF_AVERAGE);
+                        CALL_EVENT(MessageTextFilterSet);
                         break;
 #endif
                     case MSG_PRINT_FUNC_SET_X:
@@ -1242,6 +1243,7 @@ void appendGfx_message(MessagePrintState* printer, s16 posX, s16 posY, u16 addit
                     sp96 = 0xFF;
                     gDPPipeSync(gMainGfxPos++);
                     gSPDisplayList(gMainGfxPos++, D_8014C500);
+                    CALL_EVENT(MessageTextFilterSet);
                 }
                 msg_drawState->charScale.x = msg_drawState->msgScale.x;
                 msg_drawState->charScale.y = msg_drawState->msgScale.y;
@@ -1625,6 +1627,7 @@ void appendGfx_message(MessagePrintState* printer, s16 posX, s16 posY, u16 addit
 void msg_reset_gfx_state(void) {
     gDPPipeSync(gMainGfxPos++);
     gSPDisplayList(gMainGfxPos++, D_8014C500);
+    CALL_EVENT(MessageTextFilterSet);
 }
 
 void msg_draw_char(MessagePrintState* printer, MessageDrawState* drawState, s32 charIndex, s32 palette, s32 posX, s32 posY) {
@@ -1898,23 +1901,16 @@ void msg_draw_speech_bubble(
     }
 
     gDPSetTextureLUT(gMainGfxPos++, G_TT_RGBA16);
-    gDPSetTextureImage(gMainGfxPos++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1,
-                       ui_msg_palettes[msg_drawState->framePalette]);
-    gDPTileSync(gMainGfxPos++);
-    gDPSetTile(gMainGfxPos++, G_IM_FMT_RGBA, G_IM_SIZ_4b, 0, 0x0100, G_TX_LOADTILE, 0,
-               G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD);
-    gDPLoadSync(gMainGfxPos++);
-    gDPLoadTLUTCmd(gMainGfxPos++, G_TX_LOADTILE, 15);
-    gDPPipeSync(gMainGfxPos++);
-    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_bubble_left_png, G_IM_FMT_CI, 32, 0, 0, 0, 31, 63, 0,
+    gDPLoadTLUT_pal256(gMainGfxPos++, ui_msg_bubble_left_pal);
+    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_bubble_left_png, G_IM_FMT_CI, 32, 0, 0, 0, 31, 63, msg_drawState->framePalette,
                           G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, 5, 6, G_TX_NOLOD, G_TX_NOLOD);
     gSPVertex(gMainGfxPos++, gMsgSpeechBoxLQuad, 4, 0);
     gSP2Triangles(gMainGfxPos++, 0, 2, 1, 0, 1, 2, 3, 0);
-    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_bubble_mid_png, G_IM_FMT_CI, 8, 0, 0, 0, 7, 63, 0,
+    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_bubble_mid_png, G_IM_FMT_CI, 8, 0, 0, 0, 7, 63, msg_drawState->framePalette,
                           G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, 3, 6, G_TX_NOLOD, G_TX_NOLOD);
     gSPVertex(gMainGfxPos++, gMsgSpeechBoxMQuad, 4, 0);
     gSP2Triangles(gMainGfxPos++, 0, 2, 1, 0, 1, 2, 3, 0);
-    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_bubble_right_png, G_IM_FMT_CI, 32, 0, 0, 0, 31, 63, 0,
+    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_bubble_right_png, G_IM_FMT_CI, 32, 0, 0, 0, 31, 63, msg_drawState->framePalette,
                           G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, 5, 6, G_TX_NOLOD, G_TX_NOLOD);
     gSPVertex(gMainGfxPos++, gMsgSpeechBoxRQuad, 4, 0);
     gSP2Triangles(gMainGfxPos++, 0, 2, 1, 0, 1, 2, 3, 0);
@@ -2028,7 +2024,7 @@ void msg_draw_speech_arrow(MessagePrintState* printer) {
     gDPSetCombineMode(gMainGfxPos++, PM_CC_0F, PM_CC_0F);
     gDPSetTextureFilter(gMainGfxPos++, G_TF_BILERP);
     gDPSetPrimColor(gMainGfxPos++, 0, 0, 32, 32, 32, 255);
-    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_arrow_png, G_IM_FMT_CI, 16, 0, 0, 0, 15, 15, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, 4, 4, G_TX_NOLOD, G_TX_NOLOD);
+    gDPLoadTextureTile_4b(gMainGfxPos++, ui_msg_arrow_png, G_IM_FMT_CI, 16, 0, 0, 0, 15, 15, msg_drawState->framePalette, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, 4, 4, G_TX_NOLOD, G_TX_NOLOD);
     guTranslateF(sp10, 0.0f, 0.0f, 0.0f);
     guMtxF2L(sp10, &gDisplayContext->matrixStack[gMatrixListPos]);
     gSPMatrix(gMainGfxPos++, VIRTUAL_TO_PHYSICAL(&gDisplayContext->matrixStack[gMatrixListPos++]), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
@@ -2042,6 +2038,7 @@ void msg_draw_frame(s32 posX, s32 posY, s32 sizeX, s32 sizeY, s32 style, s32 pal
     IMG_BIN* textures[16];
     u8 r, g, b;
     Rect quads[16];
+    static u16 choiceColor = 0; // palette 0 entry 4, looked up once
 
     if (sizeX < 16 || sizeY < 16) {
         return;
@@ -2063,9 +2060,12 @@ void msg_draw_frame(s32 posX, s32 posY, s32 sizeX, s32 sizeY, s32 style, s32 pal
     if (fading == 0 || bgAlpha != 0) {
         switch (style) {
             case MSG_STYLE_CHOICE:
-                r = UNPACK_PAL_R(((u16*)ui_msg_palettes)[4]);
-                g = UNPACK_PAL_G(((u16*)ui_msg_palettes)[4]);
-                b = UNPACK_PAL_B(((u16*)ui_msg_palettes)[4]);
+                if (choiceColor == 0) {
+                    choiceColor = ((u16*)LOAD_ASSET(ui_msg_bubble_left_pal))[4];
+                }
+                r = UNPACK_PAL_R(choiceColor);
+                g = UNPACK_PAL_G(choiceColor);
+                b = UNPACK_PAL_B(choiceColor);
                 // BUGFIX: properly remap colors to full range [0, 255]
                 r = my_ceil(255 * r / 31.0);
                 g = my_ceil(255 * g / 31.0);
@@ -2259,11 +2259,11 @@ void msg_draw_frame(s32 posX, s32 posY, s32 sizeX, s32 sizeY, s32 style, s32 pal
     gDPSetCombineMode(gMainGfxPos++, PM_CC_02, PM_CC_02);
     gDPSetPrimColor(gMainGfxPos++, 0, 0, 0, 0, 0, frameAlpha);
     gDPSetTextureLUT(gMainGfxPos++, G_TT_RGBA16);
-    gDPLoadTLUT_pal16(gMainGfxPos++, 0, ui_msg_palettes[palette]);
+    gDPLoadTLUT_pal256(gMainGfxPos++, ui_msg_bubble_left_pal);
 
     for (i = 0; i < ARRAY_COUNT(textures); i++) {
         if (textures[i] != nullptr && quads[i].ulx < 10000) {
-            gDPLoadTextureTile_4b(gMainGfxPos++, textures[i], G_IM_FMT_CI, 8, 8, 0, 0, 7, 7, 0, G_TX_WRAP, G_TX_WRAP, 3, 3, G_TX_NOLOD, G_TX_NOLOD);
+            gDPLoadTextureTile_4b(gMainGfxPos++, textures[i], G_IM_FMT_CI, 8, 8, 0, 0, 7, 7, palette, G_TX_WRAP, G_TX_WRAP, 3, 3, G_TX_NOLOD, G_TX_NOLOD);
             gSPScisTextureRectangle(gMainGfxPos++, quads[i].ulx, quads[i].uly, quads[i].lrx, quads[i].lry,
                                     G_TX_RENDERTILE, 0, 0, 0x400, 0x400);
         }

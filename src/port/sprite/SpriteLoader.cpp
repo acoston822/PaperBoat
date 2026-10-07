@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include "SpriteLoader.h"
+#include "port/Engine.h"
 
 #include <string>
 #include <unordered_set>

@@ -14,6 +14,8 @@ void port_emitPrevFrameCapture(Gfx** gfxP);
 void port_appendGfx_draw_prev_frame_buffer(s32 x1, s32 y1, s32 x2, s32 y2, f32 alpha);
 u16* port_getSceneMirrorSentinel(void);
 void port_emitSceneMirrorCapture(Gfx** gfxP);
+void port_appendGfx_pause_background(s32 bgRenderState);
+b32 port_isPauseBackgroundActive(void);
 
 // Static Gfx[] with VTXs
 void port_patch_dl(Gfx* dl);
@@ -39,6 +41,17 @@ void port_appendGfx_shading_palette(
     s32 shadowR, s32 shadowG, s32 shadowB,
     s32 highlightR, s32 highlightG, s32 highlightB,
     s32 ambientPower, s32 renderMode);
+void port_begin_palette_override(PAL_PTR* palettes, PAL_PTR* originals);
+void port_end_palette_override(void);
+PAL_PTR port_resolve_palette(PAL_PTR* palettes, s32 index);
+void port_palette_frame(void);
+void port_palette_blend(PAL_PTR palette, PAL_PTR from, PAL_PTR to, s32 alpha);
+void port_palette_tint(PAL_PTR palette, PAL_PTR base, f32 sr, f32 sg, f32 sb, s32 r, s32 g, s32 b);
+
+// Sprite HD prefetch (SpritePatches.c)
+struct SpriteAnimData;
+void port_prefetch_npc_anim(struct SpriteAnimData* sprite, s32 prevAnimID, s32 animID);
+void port_prefetch_player_anim(struct SpriteAnimData* sprite, s32 prevAnimID, s32 animID);
 
 // Message fonts (MessagePatches.c)
 void port_msg_font_loaded(s32 font);
@@ -46,6 +59,7 @@ IMG_PTR port_msg_glyph_raster(IMG_PTR glyph);
 PAL_PTR port_msg_glyph_palette(PAL_PTR palette);
 
 // Background (BackgroundPatches.c)
+extern char* gBgPalettePath;
 void port_load_map_bg(char* optAssetName);
 void port_appendGfx_background_texture(void);
 
@@ -77,6 +91,19 @@ void port_appendGfx_darkness_stencil(b32 isWorld, s32 posX, s32 posY, f32 alpha,
 // BufRead1`.
 ApiStatus LoadPtrFromArray(Evt* script, bool isInitialCall);
 ApiStatus StepTaggedAIWaveBuf(Evt* script, bool isInitialCall);
+
+// Full Height View (CameraPatches.cpp)
+b32 port_cam_full_height(s32 camID);
+b32 port_hud_full_height(void);
+s32 port_hud_clip_top(void);
+s32 port_hud_clip_bottom(void);
+s32 port_status_bar_y(void);
+s32 port_btl_menu_y(void);
+
+// World-anchored screen overlays (ScreenAnchorPatches.cpp)
+void port_rect_anchor_begin(const void* key, uintptr_t index, s32 x, s32 y);
+void port_rect_anchor_end(void);
+void port_wide_texture_rectangle(s32 ulx, s32 uly, s32 lrx, s32 lry, s32 tile, s32 s, s32 t, s32 dsdx, s32 dtdy);
 
 // Lava piranha vines (LavaPiranhaPatches.c)
 extern u8 PortLavaPiranhaVineBase[4][16];
