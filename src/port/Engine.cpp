@@ -1,8 +1,3 @@
-#ifdef PAPERPAD_APP
-extern "C" void PaperPadBoat_Ready();
-extern "C" void PaperPadBoat_Frame();
-extern "C" void PaperPadBoat_ReadController(void*);
-#endif
 #include "Engine.h"
 
 #include "ShipInit.hpp"
@@ -103,7 +98,6 @@ void nuScCreateScheduler(uint8_t mode, uint8_t numFields);
 void create_audio_system(void);
 void nuAuMgr(void* arg);
 Acmd* alAudioFrame(Acmd* cmdList, int32_t* cmdLen, int16_t* outBuf, int32_t outLen);
-extern GameStatus* gGameStatusPtr;
 extern int32_t AlFrameSize;
 extern int32_t AlMinFrameSize;
 }
@@ -851,9 +845,6 @@ void GameEngine::Create(int argc, char* argv[]) {
     PortEnhancements_Init();
     ShipInit::InitAll();
     instance->AudioInit();
-#ifdef PAPERPAD_APP
-    PaperPadBoat_Ready();
-#endif
 }
 
 bool GameEngine::sRelaunchRequested = false;
@@ -955,14 +946,6 @@ static void ApplyDPadAsLeftStick(bool enabled) {
 }
 
 void GameEngine::StartFrame() const {
-#ifdef PAPERPAD_APP
-    PaperPadBoat_Frame();
-    static int priorArea=-1, priorMap=-1, priorEntry=-1;
-    if (priorArea != gGameStatusPtr->areaID || priorMap != gGameStatusPtr->mapID || priorEntry != gGameStatusPtr->entryID) {
-        priorArea=gGameStatusPtr->areaID; priorMap=gGameStatusPtr->mapID; priorEntry=gGameStatusPtr->entryID;
-        SPDLOG_INFO("[paperpad-boat] game state area={} map={} entry={}", priorArea, priorMap, priorEntry);
-    }
-#endif
     Ship::Context::GetRawInstance()->GetWindow()->HandleEvents();
 
     const bool altAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0) != 0;

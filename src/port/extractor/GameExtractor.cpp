@@ -123,8 +123,6 @@ void GameExtractor::SelectGameFromUI(std::function<void(bool)> onComplete) {
     // Blocks (ASYNCIFY) until the user picks a file or cancels.
     const std::string romPath = WebFilePicker_PickROM();
     finish(!romPath.empty() && LoadRomFromPath(romPath));
-#elif defined(PAPERPAD_APP)
-    finish(LoadRomFromPath(std::string(std::getenv("SHIP_HOME")) + "/baserom.z64"));
 #elif defined(__IOS__) || defined(__ANDROID__)
     // Mobile has no file dialog: the ROM is put in place beforehand.
     finish(LoadRomFromPath(Ship::Context::GetPathRelativeToAppDirectory("baserom.us.z64")));

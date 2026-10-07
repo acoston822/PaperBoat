@@ -7,15 +7,6 @@ project(Paperboat
     DESCRIPTION "PM64"
 )
 
-if(APPLE)
-    enable_language(OBJC OBJCXX)
-endif()
-
-if(PAPERPAD_APP_ROOT)
-    add_compile_options("-ffile-prefix-map=${PAPERPAD_APP_ROOT}=/paperpad"
-                        "-fdebug-prefix-map=${PAPERPAD_APP_ROOT}=/paperpad")
-endif()
-
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_EXTENSIONS ON)  # Enable GNU extensions (gnu99)
 set(CMAKE_CXX_STANDARD 20)
@@ -293,8 +284,7 @@ list(FILTER GAME_SOURCES EXCLUDE REGEX "/pra_02/entity\\.c$")
 #=================== SSE2NEON ===================
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
     set(SSE2NEON_DIR ${CMAKE_BINARY_DIR}/_deps/sse2neon)
-    file(DOWNLOAD "https://raw.githubusercontent.com/DLTcollab/sse2neon/60fc9391e378b58c60899791c0e9ee9cdaf43c08/sse2neon.h" "${SSE2NEON_DIR}/sse2neon.h"
-        EXPECTED_HASH SHA256=0624a1270fc88a67e6b886cd0e33e322d93de4b3a760b3373dc3a66e713bd43f)
+    file(DOWNLOAD "https://raw.githubusercontent.com/DLTcollab/sse2neon/refs/heads/master/sse2neon.h" "${SSE2NEON_DIR}/sse2neon.h")
     include_directories(${SSE2NEON_DIR})
 endif()
 
@@ -774,8 +764,3 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 endif()
 
 message(STATUS "Configuring ${PROJECT_NAME} v${PROJECT_VERSION}")
-
-# Optional embedding shell; normal upstream builds remain standalone.
-if(PAPERPAD_APP_ROOT)
-    include("${PAPERPAD_APP_ROOT}/apple/paperboat/integration.cmake")
-endif()

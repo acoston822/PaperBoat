@@ -1,7 +1,4 @@
 #include "SaveManager.h"
-#include "AtomicSaveFile.h"
-#include <memory>
-#include <set>
 #include "SaveTypes.h"
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -64,8 +61,7 @@ std::string CollapsedJSONArray(const nlohmann::ordered_json& jsonFile) {
 }
 
 SaveData* ConvertJSON_to_SaveData(nlohmann::json jsonSaveFile) {
-    auto ownedSave = std::make_unique<SaveData>();
-    SaveData* saveData = ownedSave.get();
+    SaveData* saveData = new SaveData();
 
     strncpy(
         saveData->magicString, jsonSaveFile["magicString"].get_ref<const std::string&>().c_str(),
@@ -171,7 +167,7 @@ SaveData* ConvertJSON_to_SaveData(nlohmann::json jsonSaveFile) {
 
     ordered_json jsonPartnerUsedTime = jsonPlayer["partnerUsedTime"];
     for (int put = 0; put < MAX_PARTNERUSEDTIME; put++) {
-        saveData->player.partnerUsedTime[put] = jsonPartnerUsedTime[put];
+        saveData->player.partnerUnlockedTime[put] = jsonPartnerUsedTime[put];
     }
 
     saveData->player.tradeEventStartTime = jsonPlayer["tradeEventStartTime"];
@@ -260,7 +256,7 @@ SaveData* ConvertJSON_to_SaveData(nlohmann::json jsonSaveFile) {
     ordered_json jsonShipSaveData = jsonSaveFile["ship"];
     saveData->shipSaveData.hasDiedOnce = jsonShipSaveData["hasDiedOnce"];
 
-    return ownedSave.release();
+    return saveData;
 }
 
 ordered_json ConvertSaveData_to_JSON(SaveData* saveData) {
@@ -474,22 +470,6 @@ ordered_json ConvertSaveData_to_JSON(SaveData* saveData) {
     return jsonSave;
 }
 
-// A corrupt slot is read-only until explicitly erased; never silently replace it
-// with the empty placeholder used to keep file selection responsive.
-static std::set<int> sUnreadableSlots;
-#ifdef PAPERPAD_APP
-extern "C" void PaperPadBoat_ReportSaveError(const char*);
-#else
-static void PaperPadBoat_ReportSaveError(const char*) {}
-#endif
-static SaveData ReadValidatedSave(const std::string& path) {
-    auto parsed = json::parse(PaperBoatSave::Read(path));
-    std::unique_ptr<SaveData> converted(ConvertJSON_to_SaveData(parsed));
-    if (std::string(converted->magicString) != "Mario Story 006" || converted->saveSlot < 0 || converted->saveSlot > 3)
-        throw std::runtime_error("Invalid save identity or slot");
-    return *converted;
-}
-
 static std::string GlobalsPath() {
     return Ship::Context::GetPathRelativeToAppDirectory("saves/globals.json", "pm64");
 }
@@ -511,9 +491,9 @@ static void WriteGlobals(const SaveGlobals* globals) {
     if (!fs::exists(dir)) {
         fs::create_directories(dir);
     }
-    try {
-        PaperBoatSave::AtomicWrite(GlobalsPath(), j.dump(4));
-    } catch (const std::exception&) {
+    std::ofstream out(GlobalsPath());
+    if (out.is_open()) {
+        out << j.dump(4);
     }
 }
 
@@ -553,28 +533,17 @@ void SaveManager_Init() {
             std::string fileName = fmt::format("file{}.json", saveData->saveSlot);
             std::string filePath = Ship::Context::GetPathRelativeToAppDirectory("saves/", "pm64");
 
-            const std::string directory = filePath;
+            if (!fs::exists(filePath)) {
+                fs::create_directories(filePath);
+            }
+
             filePath += fileName;
             std::string collapsedString = CollapsedJSONArray(jsonSaveFile);
 
-            try {
-                fs::create_directories(directory);
-                if (sUnreadableSlots.count(saveData->saveSlot))
-                    throw std::runtime_error("Corrupt slot is protected; restore or explicitly erase it first");
-                // Preserve only a known-valid prior save, never a damaged primary.
-                if (fs::exists(filePath)) {
-                    try {
-                        ReadValidatedSave(filePath);
-                        PaperBoatSave::AtomicWrite(filePath + ".bak", PaperBoatSave::Read(filePath));
-                    } catch (const std::exception& error) {
-                        SPDLOG_WARN("Previous save not backed up: {}", error.what());
-                    }
-                }
-                PaperBoatSave::AtomicWrite(filePath, collapsedString);
-                SPDLOG_INFO("Save committed: slot={} bytes={}", saveData->saveSlot, collapsedString.size());
-            } catch (const std::exception& error) {
-                SPDLOG_ERROR("Save failed: slot={} reason={}", saveData->saveSlot, error.what());
-                PaperPadBoat_ReportSaveError("The game could not write this save. Existing files were preserved. Share diagnostics before trying again.");
+            std::ofstream outputFile(filePath);
+            if (outputFile.is_open()) {
+                outputFile << collapsedString;
+                outputFile.close();
             }
         }
     })
@@ -586,26 +555,15 @@ void SaveManager_Init() {
         std::string fileName = fmt::format("file{}.json", ev->saveSlot);
         std::string filePath = Ship::Context::GetPathRelativeToAppDirectory("saves/" + fileName, "pm64");
 
-        gCurrentSaveFile = SaveData{};
-        if (fs::exists(filePath) || fs::exists(filePath + ".bak")) {
-            bool loaded = false;
-            for (const auto& candidate : {filePath, filePath + ".bak"}) {
-                try {
-                    auto save = ReadValidatedSave(candidate);
-                    if (save.saveSlot != ev->saveSlot) throw std::runtime_error("Save slot mismatch");
-                    gCurrentSaveFile = save;
-                    loaded = true;
-                    sUnreadableSlots.erase(ev->saveSlot);
-                    SPDLOG_INFO("Save loaded: slot={} backup={}", ev->saveSlot, candidate != filePath);
-                    break;
-                } catch (const std::exception& error) {
-                    SPDLOG_ERROR("Save read failed: slot={} backup={} reason={}", ev->saveSlot, candidate != filePath, error.what());
-                }
-            }
-            if (!loaded) {
-                sUnreadableSlots.insert(ev->saveSlot);
-                PaperPadBoat_ReportSaveError("A save and its backup could not be read. This slot is protected from overwriting. The original files are preserved.");
-            }
+        if (fs::exists(filePath)) {
+            std::ifstream inputFile(filePath);
+            json jsonSave;
+            inputFile >> jsonSave;
+
+            gCurrentSaveFile = *ConvertJSON_to_SaveData(jsonSave);
+        } else {
+            SaveData* newSaveData = new SaveData();
+            gCurrentSaveFile = *newSaveData;
         }
         CALL_EVENT(OnPostSaveFileLoad);
     })
@@ -617,14 +575,8 @@ void SaveManager_Init() {
         std::string fileName = fmt::format("file{}.json", ev->saveSlot);
         std::string filePath = Ship::Context::GetPathRelativeToAppDirectory("saves/" + fileName, "pm64");
 
-        try {
+        if (fs::exists(filePath)) {
             fs::remove(filePath);
-            fs::remove(filePath + ".bak");
-            fs::remove(filePath + ".tmp");
-            sUnreadableSlots.erase(ev->saveSlot);
-            SPDLOG_INFO("Save explicitly erased: slot={}", ev->saveSlot);
-        } catch (const std::exception& error) {
-            SPDLOG_ERROR("Save erase failed: slot={} reason={}", ev->saveSlot, error.what());
         }
     })
 }
