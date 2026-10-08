@@ -1183,6 +1183,21 @@ extern "C" void* GameEngine_GetDataExact(const char* name) {
     return res != nullptr ? resourceMgr->GetResourceRawPointer(res) : nullptr;
 }
 
+// True when Alternate Assets is on and a pack carries `name` only under "alt/". Texture packs
+// that ship their replacements exclusively in alt/ (no copy at the archive root) are otherwise
+// invisible to callers that probe for a named replacement by its exact path.
+extern "C" int GameEngine_AltDataExists(const char* name) {
+    if (name == nullptr || CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0) == 0) {
+        return 0;
+    }
+    std::string path = name;
+    if (GameEngine_OTRSigCheck(name)) {
+        path = path.substr(7);
+    }
+    path = std::string(Ship::IResource::gAltAssetPrefix) + path;
+    return Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path, /*loadExact=*/true) != nullptr;
+}
+
 // Size counterpart of GameEngine_GetDataExact.
 extern "C" size_t GameEngine_GetSizeExact(const char* name) {
     if (name == nullptr) {
