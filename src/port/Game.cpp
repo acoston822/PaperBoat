@@ -8,8 +8,10 @@
 
 #include "Engine.h"
 #include "port/DevTools/ThreadWatchdog.h"
+#include "port/DevTools/FrameStats.h"
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/os/OS.h"
+#include <spdlog/spdlog.h>
 
 #ifdef __EMSCRIPTEN__
 #include <SDL2/SDL.h>
@@ -142,16 +144,35 @@ extern "C"
 
     while (wnd->IsRunning()) {
         ThreadWatchdog_Beat(WATCHDOG_MAIN_LOOP);
+        const uint64_t fsT0 = FrameStats::NowNs();
         GameEngine::Instance->StartFrame();
+        const uint64_t fsT1 = FrameStats::NowNs();
         OS_SiService();
+        const uint64_t fsT2 = FrameStats::NowNs();
         GameEngine::DrainRenderService();
-        if (!ServiceRcp()) {
+        const uint64_t fsT3 = FrameStats::NowNs();
+        FrameStats::Record(FrameStats::kStart, fsT1 - fsT0);
+        FrameStats::Record(FrameStats::kSi, fsT2 - fsT1);
+        FrameStats::Record(FrameStats::kDrain, fsT3 - fsT2);
+        const bool fsRendered = ServiceRcp() != 0;
+        if (fsRendered) {
+            FrameStats::Record(FrameStats::kRender, FrameStats::NowNs() - fsT3);
+        }
+        {
+            char fsLine[640];
+            if (FrameStats::Poll(fsLine, sizeof(fsLine))) {
+                SPDLOG_INFO("{}", fsLine);
+            }
+        }
+        if (!fsRendered) {
             if (ThreadWatchdog_IsStalled(WATCHDOG_GAME_TICK)) {
                 GameEngine::Instance->RenderGuiFrame();
                 SDL_Delay(16);
                 continue;
             }
+            const uint64_t fsI0 = FrameStats::NowNs();
             SDL_Delay(1);
+            FrameStats::Record(FrameStats::kIdle, FrameStats::NowNs() - fsI0);
         }
 #ifdef __EMSCRIPTEN__
         // A tab can close without warning, so sync periodically, not just on exit.
