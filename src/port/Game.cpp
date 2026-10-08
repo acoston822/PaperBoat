@@ -1,3 +1,4 @@
+#include "port/DevTools/FrameStats.h"
 #include <fast/Fast3dWindow.h>
 #include <fast/interpreter.h>
 #include <libultraship.h>
@@ -142,16 +143,30 @@ extern "C"
 
     while (wnd->IsRunning()) {
         ThreadWatchdog_Beat(WATCHDOG_MAIN_LOOP);
+        const uint64_t fsT0 = FrameStats::NowNs();
         GameEngine::Instance->StartFrame();
+        const uint64_t fsT1 = FrameStats::NowNs();
         OS_SiService();
+        const uint64_t fsT2 = FrameStats::NowNs();
         GameEngine::DrainRenderService();
-        if (!ServiceRcp()) {
+        const uint64_t fsT3 = FrameStats::NowNs();
+        FrameStats::Add(FrameStats::kStart, fsT1 - fsT0);
+        FrameStats::Add(FrameStats::kSi, fsT2 - fsT1);
+        FrameStats::Add(FrameStats::kDrain, fsT3 - fsT2);
+        const bool fsRendered = ServiceRcp() != 0;
+        if (fsRendered) {
+            FrameStats::Add(FrameStats::kRender, FrameStats::NowNs() - fsT3);
+        }
+        FrameStats::MaybeFlush();
+        if (!fsRendered) {
             if (ThreadWatchdog_IsStalled(WATCHDOG_GAME_TICK)) {
                 GameEngine::Instance->RenderGuiFrame();
                 SDL_Delay(16);
                 continue;
             }
+            const uint64_t fsI0 = FrameStats::NowNs();
             SDL_Delay(1);
+            FrameStats::Add(FrameStats::kIdle, FrameStats::NowNs() - fsI0);
         }
 #ifdef __EMSCRIPTEN__
         // A tab can close without warning, so sync periodically, not just on exit.
