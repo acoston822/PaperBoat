@@ -1,4 +1,3 @@
-#include "port/DevTools/FrameStats.h"
 #include <fast/Fast3dWindow.h>
 #include <fast/interpreter.h>
 #include <libultraship.h>
@@ -9,8 +8,10 @@
 
 #include "Engine.h"
 #include "port/DevTools/ThreadWatchdog.h"
+#include "port/DevTools/FrameStats.h"
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/os/OS.h"
+#include <spdlog/spdlog.h>
 
 #ifdef __EMSCRIPTEN__
 #include <SDL2/SDL.h>
@@ -157,7 +158,12 @@ extern "C"
         if (fsRendered) {
             FrameStats::Add(FrameStats::kRender, FrameStats::NowNs() - fsT3);
         }
-        FrameStats::MaybeFlush();
+        {
+            char fsLine[640];
+            if (FrameStats::Poll(fsLine, sizeof(fsLine))) {
+                SPDLOG_INFO("{}", fsLine);
+            }
+        }
         if (!fsRendered) {
             if (ThreadWatchdog_IsStalled(WATCHDOG_GAME_TICK)) {
                 GameEngine::Instance->RenderGuiFrame();

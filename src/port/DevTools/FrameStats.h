@@ -4,7 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <spdlog/spdlog.h>
+#include <cstdio>
 
 namespace FrameStats {
 
@@ -62,26 +62,33 @@ inline Snap Take(Slot s) {
     return r;
 }
 
-// Call from the main loop; logs at most once a second.
-inline void MaybeFlush() {
+// Call from the main loop. Returns true about once a second with a summary line in `out`.
+inline bool Poll(char* out, size_t cap) {
     static uint64_t next = 0;
     const uint64_t now = NowNs();
     if (next == 0) {
         next = now + 1000000000ull;
-        return;
+        return false;
     }
     if (now < next) {
-        return;
+        return false;
     }
     next = now + 1000000000ull;
     const Snap st = Take(kStart), si = Take(kSi), dr = Take(kDrain), re = Take(kRender), id = Take(kIdle),
                pr = Take(kPresent), rt = Take(kRetrace);
-    SPDLOG_INFO(
-        "[frame-stats] present n={} avg={}us max={}us >25ms={} >40ms={} | retrace n={} avg={}us max={}us >25ms={} | "
-        "render n={} avg={}us max={}us | startFrame max={}us | si max={}us | drain max={}us | idleSleeps={} max={}us",
-        pr.n, pr.avgUs, pr.maxUs, pr.o25, pr.o40, rt.n, rt.avgUs, rt.maxUs, rt.o25, re.n, re.avgUs, re.maxUs, st.maxUs,
-        si.maxUs, dr.maxUs, id.n, id.maxUs
+    std::snprintf(
+        out, cap,
+        "[frame-stats] present n=%llu avg=%lluus max=%lluus >25ms=%llu >40ms=%llu | retrace n=%llu avg=%lluus "
+        "max=%lluus >25ms=%llu | render n=%llu avg=%lluus max=%lluus | startFrame max=%lluus | si max=%lluus | "
+        "drain max=%lluus | idleSleeps=%llu max=%lluus",
+        (unsigned long long) pr.n, (unsigned long long) pr.avgUs, (unsigned long long) pr.maxUs,
+        (unsigned long long) pr.o25, (unsigned long long) pr.o40, (unsigned long long) rt.n,
+        (unsigned long long) rt.avgUs, (unsigned long long) rt.maxUs, (unsigned long long) rt.o25,
+        (unsigned long long) re.n, (unsigned long long) re.avgUs, (unsigned long long) re.maxUs,
+        (unsigned long long) st.maxUs, (unsigned long long) si.maxUs, (unsigned long long) dr.maxUs,
+        (unsigned long long) id.n, (unsigned long long) id.maxUs
     );
+    return true;
 }
 
 } // namespace FrameStats
