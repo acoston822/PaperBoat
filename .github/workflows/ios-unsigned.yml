@@ -3,7 +3,7 @@ name: Build unsigned iOS IPA
 on:
   workflow_dispatch:
   push:
-    branches: [ios-standalone]
+    branches: [ios-standalone, frame-timing]
 
 jobs:
   ios:
