@@ -22,7 +22,7 @@ inline uint64_t NowNs() {
         .count();
 }
 
-inline void Add(Slot s, uint64_t ns) {
+inline void Record(Slot s, uint64_t ns) {
     Counter& c = gCounters[s];
     c.n.fetch_add(1, std::memory_order_relaxed);
     c.sumNs.fetch_add(ns, std::memory_order_relaxed);
@@ -42,7 +42,7 @@ inline void Tick(Slot s, std::atomic<uint64_t>& last) {
     const uint64_t now = NowNs();
     const uint64_t prev = last.exchange(now, std::memory_order_relaxed);
     if (prev != 0) {
-        Add(s, now - prev);
+        Record(s, now - prev);
     }
 }
 
