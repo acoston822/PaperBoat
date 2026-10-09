@@ -59,7 +59,11 @@ void load_map_script_lib(void) {
     DMA_COPY_SEGMENT(world_script_api);
 }
 
+u64 FrameEvents_Now(void);
+void FrameEvents_MapLoad(const char* mapId, int area, int map, int loadType, u64 t0, u64 t1, u64 t2, u64 t3, u64 t4, u64 t5);
+
 void load_map_by_IDs(s16 areaID, s16 mapID, s16 loadType) {
+    u64 fsT0 = FrameEvents_Now(), fsT1, fsT2, fsT3, fsT4;
     s32 skipLoadingAssets = 0;
     MapConfig* mapConfig;
     MapSettings* mapSettings;
@@ -128,12 +132,14 @@ void load_map_by_IDs(s16 areaID, s16 mapID, s16 loadType) {
     }
     CALL_EVENT(OnMapLoad, mapConfig->id);
 
+    fsT1 = FrameEvents_Now();
     gMapSettings = *mapConfig->settings;
 
     mapSettings = &gMapSettings;
     if (mapConfig->init != nullptr) {
         skipLoadingAssets = mapConfig->init();
     }
+    fsT2 = FrameEvents_Now();
 
     if (!skipLoadingAssets) {
         ShapeFile* shapeFile = &gMapShapeData;
@@ -159,6 +165,7 @@ void load_map_by_IDs(s16 areaID, s16 mapID, s16 loadType) {
     if (mapConfig->bgName != nullptr) {
         port_load_map_bg(wMapBgName);
     }
+    fsT3 = FrameEvents_Now();
 
 #if !VERSION_IQUE
     load_obfuscation_shims();
@@ -203,11 +210,13 @@ void load_map_by_IDs(s16 areaID, s16 mapID, s16 loadType) {
     sfx_set_reverb_mode(WorldReverbModeMapping[mapConfig->sfxReverb & 0x3]);
     sfx_reset_door_sounds();
 
+    fsT4 = FrameEvents_Now();
     if (!skipLoadingAssets) {
         if (mapSettings->modelTreeRoot != nullptr) {
             load_data_for_models(mapSettings->modelTreeRoot, wMapTexName);
         }
     }
+    FrameEvents_MapLoad(mapConfig->id, areaID, mapID, loadType, fsT0, fsT1, fsT2, fsT3, fsT4, FrameEvents_Now());
 
     if (mapSettings->background != nullptr) {
         set_background(mapSettings->background);

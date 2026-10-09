@@ -32,11 +32,16 @@ BSS s32 SavedWorldFreezeMode;
 
 extern ShapeFile gMapShapeData;
 
+u64 FrameEvents_Now(void);
+void FrameEvents_BattleLoad(int battleId, u64 t0, u64 t1, u64 t2, u64 t3);
+void FrameEvents_Event(const char* what);
+
 void state_init_battle(void) {
     BattleTransitionDelay = 5;
 }
 
 void state_step_battle(void) {
+    u64 fsT0, fsT1, fsT2;
     u32 currentBattleArea;
     u32 currentBattleIndex;
 
@@ -68,6 +73,7 @@ void state_step_battle(void) {
 
         sfx_clear_env_sounds(0);
 
+        fsT0 = FrameEvents_Now();
         currentBattleArea = UNPACK_BTL_AREA(gCurrentBattleID);
         currentBattleIndex = UNPACK_BTL_INDEX(gCurrentBattleID);
 
@@ -79,6 +85,7 @@ void state_step_battle(void) {
             spr_init_sprites(PLAYER_SPRITES_MARIO_BATTLE);
         }
 
+        fsT1 = FrameEvents_Now();
         clear_model_data();
         clear_sprite_shading_data();
         reset_background_settings();
@@ -93,9 +100,11 @@ void state_step_battle(void) {
         clear_npcs();
         clear_entity_data(true);
         clear_trigger_data();
+        fsT2 = FrameEvents_Now();
         initialize_battle();
         btl_save_world_cameras();
         load_battle_section();
+        FrameEvents_BattleLoad(gCurrentBattleID, fsT0, fsT1, fsT2, FrameEvents_Now());
         SavedWorldAnimFlags = gPlayerStatusPtr->animFlags;
         gPlayerStatusPtr->animFlags &= ~PA_FLAG_PULSE_STONE_VISIBLE;
         SavedWorldFreezeMode = get_time_freeze_mode();
@@ -124,6 +133,7 @@ void state_drawUI_battle(void) {
 }
 
 void state_init_end_battle(void) {
+    FrameEvents_Event("battle end");
     gOverrideFlags |= GLOBAL_OVERRIDES_DISABLE_DRAW_FRAME;
     nuContRmbForceStop();
     BattleTransitionDelay = 5;

@@ -52,7 +52,11 @@ s32 D_800741FC = 0;
 void gfx_init_state(void);
 void gfx_draw_background(void);
 
+void FrameEvents_StepBegin(void);
+void FrameEvents_StepEnd(void);
+
 void step_game_loop(void) {
+    FrameEvents_StepBegin();
     profiler_frame_setup();
 
     PlayerData* playerData = &gPlayerData;
@@ -173,6 +177,7 @@ void step_game_loop(void) {
 
     // Unused rand_int used to advance the global random seed each visual frame
     rand_int(1);
+    FrameEvents_StepEnd();
 }
 
 void gfx_task_background(void) {
