@@ -37,7 +37,6 @@ static const std::unordered_map<int32_t, const char*> menuShortcutOptions = {
     { 0, "Select / Back / Share" },
     { 1, "Home / Guide" },
     { 2, "Both stick clicks (L3 + R3)" },
-    { 3, "Off" },
 };
 
 static const std::unordered_map<int32_t, const char*> menuThemeOptions = {

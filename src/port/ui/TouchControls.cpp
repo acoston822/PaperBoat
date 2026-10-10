@@ -523,8 +523,11 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
         }
         // Back/Select is left to the engine's own toggle: handling it here as well made the two cancel
         // each other out, so the menu never opened.
-        // Chosen in Settings > Controller Menu Shortcut: 0 = Select/Back, 1 = Home/Guide, 2 = L3+R3, 3 = off.
-        const int shortcut = CVarGetInteger(CVAR_SETTING("Controls.MenuShortcut"), 0);
+        // Chosen in Settings > Controller Menu Shortcut: 0 = Select/Back, 1 = Home/Guide, 2 = L3+R3.
+        int shortcut = CVarGetInteger(CVAR_SETTING("Controls.MenuShortcut"), 0);
+        if (shortcut < 0 || shortcut > 2) {
+            shortcut = 0; // there is no "off": a controller must always be able to open the menu
+        }
         const uint32_t sticks = (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK);
         if (shortcut == 1 && (mask & (1u << SDL_CONTROLLER_BUTTON_GUIDE))) {
             down = true;
