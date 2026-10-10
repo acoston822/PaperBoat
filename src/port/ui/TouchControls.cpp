@@ -496,28 +496,38 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
         sRegistered = true;
     }
 
-    const bool pressed = down && !sWasDown;
-    sWasDown = down;
-    if (!pressed) {
-        return;
-    }
+    ImGuiIO& io = ImGui::GetIO();
 
+    // The engine's own Back-button toggle only runs while gamepad navigation is already on, so it
+    // closes the menu but can never open it. This opens it (and closes it if the saved choice
+    // turned navigation off). Navigation is switched on only after Back is released, otherwise the
+    // engine would see the same press and close the menu again straight away.
+    static bool sNavPending = false;
     const auto window = Ship::Context::GetRawInstance()->GetWindow();
     if (window == nullptr || window->GetGui() == nullptr) {
+        sWasDown = down;
         return;
     }
     const auto gui = window->GetGui();
     const auto menu = gui->GetMenu();
-    if (menu == nullptr) {
+    const bool navOn = (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) != 0;
+
+    if (sNavPending && !down) {
+        sNavPending = false;
+        if (menu != nullptr && menu->IsVisible() && CVarGetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0)) {
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+        }
+    }
+
+    const bool pressed = down && !sWasDown;
+    sWasDown = down;
+    if (!pressed || navOn || menu == nullptr) {
         return;
     }
-    menu->ToggleVisibility();
 
-    // Same bookkeeping the engine does for its own toggle: gamepad navigation (and blocking game
-    // input) only applies while a menu is on screen.
-    ImGuiIO& io = ImGui::GetIO();
-    if (CVarGetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) && gui->GetMenuOrMenubarVisible()) {
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    menu->ToggleVisibility();
+    if (menu->IsVisible() && CVarGetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0)) {
+        sNavPending = true;
     } else {
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
     }
