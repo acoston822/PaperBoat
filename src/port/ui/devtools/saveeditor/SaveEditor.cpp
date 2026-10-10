@@ -766,7 +766,12 @@ void SaveEditor_DrawPlayerMenu() {
                             .Max(50)
                     ))
                 {
-                    gPlayerData.curMaxHP = maxHealth;
+                    {
+                        int32_t bonus = gPlayerData.curMaxHP - gPlayerData.hardMaxHP;
+                        if (bonus < 0) bonus = 0;
+                        gPlayerData.hardMaxHP = (maxHealth - bonus) < 1 ? 1 : (maxHealth - bonus);
+                        gPlayerData.curMaxHP = maxHealth;
+                    }
                 };
 
                 // Flower Points
@@ -798,7 +803,12 @@ void SaveEditor_DrawPlayerMenu() {
                             .Max(50)
                     ))
                 {
-                    gPlayerData.curMaxFP = maxFlower;
+                    {
+                        int32_t bonus = gPlayerData.curMaxFP - gPlayerData.hardMaxFP;
+                        if (bonus < 0) bonus = 0;
+                        gPlayerData.hardMaxFP = (maxFlower - bonus) < 1 ? 1 : (maxFlower - bonus);
+                        gPlayerData.curMaxFP = maxFlower;
+                    }
                 };
 
                 // Badge Points

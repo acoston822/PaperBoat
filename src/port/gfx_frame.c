@@ -39,13 +39,18 @@ void Graphics_EnableNusysThreads(void) {
     OS_EnableThreadEntry((void*) nuGfxTaskMgr);
 }
 
+u64 FrameEvents_Now(void);
+void FrameEvents_SlowPhase(const char* what, u64 t0);
+
 static void Graphics_Retrace(u32 gfxTaskNum) {
+    u64 fsT0 = FrameEvents_Now();
     ThreadWatchdog_Beat(WATCHDOG_GAME_TICK);
     AudioVolume_Update();
     FrameInterpolation_StartRecord();
     FrameInterpolation_RecordOpenChild("game_logic", 0);
     gfxRetrace_Callback((s32) gfxTaskNum);
     FrameInterpolation_RecordCloseChild();
+    FrameEvents_SlowPhase("game tick (whole retrace callback)", fsT0);
 }
 
 // The tail of boot_main.
@@ -70,6 +75,7 @@ s32 Graphics_ShouldCapturePrevFrame(void) {
 }
 
 void Graphics_DrawFrame(Gfx* backgroundList, Gfx* mainList, s32 capturePrevFrame) {
+    u64 fsD0 = FrameEvents_Now();
     Gfx* g = sMasterList;
 
     if (backgroundList != NULL) {
@@ -84,7 +90,10 @@ void Graphics_DrawFrame(Gfx* backgroundList, Gfx* mainList, s32 capturePrevFrame
     gDPFullSync(g++);
     gSPEndDisplayList(g++);
 
+    u64 fsD1 = FrameEvents_Now();
     GameEngine_ProcessGfxCommands(sMasterList);
+    FrameEvents_SlowPhase("display list processing", fsD1);
+    FrameEvents_SlowPhase("draw frame (whole)", fsD0);
 }
 
 void Graphics_GetWatchdogState(NusysWatchdogState* out) {
