@@ -479,17 +479,48 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
         return;
     }
 
+    // Any of these counts as the menu button: controllers report their "select/view/share"
+    // button under different names. Holding both stick clicks also works.
     bool down = false;
     const int joysticks = SDL_NumJoysticks();
-    for (int i = 0; i < joysticks && !down; i++) {
+    static int sLastJoysticks = -1;
+    static uint32_t sLastMask[8] = {};
+    for (int i = 0; i < joysticks && i < 8; i++) {
         if (!SDL_IsGameController(i)) {
+            if (joysticks != sLastJoysticks) {
+                SPDLOG_INFO("[controller] device {} is a joystick but not a game controller", i);
+            }
             continue;
         }
         SDL_GameController* pad = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
-        if (pad != nullptr && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK)) {
+        if (pad == nullptr) {
+            pad = SDL_GameControllerOpen(i); // already open returns the same handle
+        }
+        if (joysticks != sLastJoysticks) {
+            const char* name = SDL_GameControllerName(pad);
+            SPDLOG_INFO("[controller] device {} name={} opened={}", i, name ? name : "?", pad != nullptr);
+        }
+        if (pad == nullptr) {
+            continue;
+        }
+        uint32_t mask = 0;
+        for (int btn = 0; btn < SDL_CONTROLLER_BUTTON_MAX; btn++) {
+            if (SDL_GameControllerGetButton(pad, (SDL_GameControllerButton) btn)) {
+                mask |= 1u << btn;
+            }
+        }
+        if (mask != sLastMask[i]) {
+            SPDLOG_INFO("[controller] device {} button mask {:#x}", i, mask);
+            sLastMask[i] = mask;
+        }
+        const uint32_t menuButtons = (1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_GUIDE) |
+                                     (1u << SDL_CONTROLLER_BUTTON_MISC1);
+        const uint32_t sticks = (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+        if ((mask & menuButtons) || (mask & sticks) == sticks) {
             down = true;
         }
     }
+    sLastJoysticks = joysticks;
 
     if (!sRegistered && joysticks > 0) {
         CVarRegisterInteger(CVAR_IMGUI_CONTROLLER_NAV, 1);
