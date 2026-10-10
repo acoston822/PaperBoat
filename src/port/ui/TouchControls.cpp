@@ -11,6 +11,8 @@
 #include <fast/Fast3dGui.h>
 #include <spdlog/spdlog.h>
 
+#include "cvar_prefixes.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -516,12 +518,15 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
         }
         // Back/Select is left to the engine's own toggle: handling it here as well made the two cancel
         // each other out, so the menu never opened.
-        const uint32_t menuButtons = (1u << SDL_CONTROLLER_BUTTON_GUIDE) | (1u << SDL_CONTROLLER_BUTTON_MISC1);
+        // Chosen in Settings > Controller Menu Shortcut: 0 = Select/Back, 1 = Home/Guide, 2 = L3+R3, 3 = off.
+        const int shortcut = CVarGetInteger(CVAR_SETTING("Controls.MenuShortcut"), 0);
         const uint32_t sticks = (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK);
-        if ((mask & menuButtons) || (mask & sticks) == sticks) {
+        if (shortcut == 1 && (mask & (1u << SDL_CONTROLLER_BUTTON_GUIDE))) {
+            down = true;
+        } else if (shortcut == 2 && (mask & sticks) == sticks) {
             down = true;
         }
-        if (mask & (1u << SDL_CONTROLLER_BUTTON_BACK)) {
+        if (shortcut == 0 && (mask & ((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_MISC1)))) {
             backDown = true;
         }
     }
