@@ -475,20 +475,19 @@ std::vector<Finger> GatherFingers() {
 #define CVAR_IMGUI_CONTROLLER_NAV "gControlNav"
 #endif
 
-// Opens/closes the port menu from a connected game controller's Back/Select button.
+// Opens the port menu from a connected game controller's Select/Back/Share button.
 // Called once per input read. Controller menu navigation is switched on by default so the
 // pad can also move around the menu (D-pad, A to select, B to go back); a saved choice wins.
+// The engine's own Back handling closes the menu again, so this only has to open it.
 extern "C" void ControllerMenuShortcut_Poll(void) {
     static bool sRegistered = false;
-    static bool sWasDown = false;
+    static bool sBackWasDown = false;
+    static bool sBackOpenOnRelease = false;
 
     if (ImGui::GetCurrentContext() == nullptr) {
         return;
     }
 
-    // Any of these counts as the menu button: controllers report their "select/view/share"
-    // button under different names. Holding both stick clicks also works.
-    bool down = false;
     bool backDown = false;
     const int joysticks = SDL_NumJoysticks();
     static int sLastJoysticks = -1;
@@ -521,20 +520,7 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
             SPDLOG_INFO("[controller] device {} button mask {:#x}", i, mask);
             sLastMask[i] = mask;
         }
-        // Back/Select is left to the engine's own toggle: handling it here as well made the two cancel
-        // each other out, so the menu never opened.
-        // Chosen in Settings > Controller Menu Shortcut: 0 = Select/Back, 1 = Home/Guide, 2 = L3+R3.
-        int shortcut = CVarGetInteger(CVAR_SETTING("Controls.MenuShortcut"), 0);
-        if (shortcut < 0 || shortcut > 2) {
-            shortcut = 0; // there is no "off": a controller must always be able to open the menu
-        }
-        const uint32_t sticks = (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK);
-        if (shortcut == 1 && (mask & (1u << SDL_CONTROLLER_BUTTON_GUIDE))) {
-            down = true;
-        } else if (shortcut == 2 && (mask & sticks) == sticks) {
-            down = true;
-        }
-        if (shortcut == 0 && (mask & ((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_MISC1)))) {
+        if (mask & (1u << SDL_CONTROLLER_BUTTON_BACK)) {
             backDown = true;
         }
     }
@@ -545,25 +531,16 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
         sRegistered = true;
     }
 
-    ImGuiIO& io = ImGui::GetIO();
-
-    // Home/Guide, Share/Capture or both stick clicks open and close the menu. Navigation is switched
-    // on only after the button is released, so the engine can't act on the same press.
-    static bool sNavPending = false;
     const auto window = Ship::Context::GetRawInstance()->GetWindow();
     if (window == nullptr || window->GetGui() == nullptr) {
-        sWasDown = down;
+        sBackWasDown = backDown;
         return;
     }
-    const auto gui = window->GetGui();
-    const auto menu = gui->GetMenu();
-    const bool navOn = (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) != 0;
+    const auto menu = window->GetGui()->GetMenu();
+    const bool navOn = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) != 0;
 
-    // Back/Select: the engine's own toggle can close the menu but not open it. Opening on RELEASE
-    // (not press) means the engine, which switches gamepad navigation on as soon as the menu
-    // shows, never sees the same press and closes it again.
-    static bool sBackWasDown = false;
-    static bool sBackOpenOnRelease = false;
+    // Opens on release, not press: the engine turns gamepad navigation on as soon as the menu shows,
+    // so opening on the press would let it see that same press and close the menu again.
     if (backDown && !sBackWasDown) {
         sBackOpenOnRelease = menu != nullptr && !menu->IsVisible() && !navOn;
     }
@@ -574,27 +551,6 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
         }
     }
     sBackWasDown = backDown;
-
-    if (sNavPending && !down) {
-        sNavPending = false;
-        if (menu != nullptr && menu->IsVisible() && CVarGetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0)) {
-            io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-        }
-    }
-
-    const bool pressed = down && !sWasDown;
-    sWasDown = down;
-    (void) navOn;
-    if (!pressed || menu == nullptr) {
-        return;
-    }
-
-    menu->ToggleVisibility();
-    if (menu->IsVisible() && CVarGetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0)) {
-        sNavPending = true;
-    } else {
-        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
-    }
 }
 
 extern "C" void TouchControls_ApplyPad(void* pads) {

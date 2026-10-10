@@ -33,12 +33,6 @@ static std::unordered_map<int32_t, const char*> imguiScaleOptions = {
     { 3, "X-Large" },
 };
 
-static const std::unordered_map<int32_t, const char*> menuShortcutOptions = {
-    { 0, "Select / Back / Share" },
-    { 1, "Home / Guide" },
-    { 2, "Both stick clicks (L3 + R3)" },
-};
-
 static const std::unordered_map<int32_t, const char*> menuThemeOptions = {
     { UIWidgets::Colors::Red, "Red" },
     { UIWidgets::Colors::DarkRed, "Dark Red" },
@@ -100,19 +94,6 @@ void PaperboatMenu::AddMenuSettings() {
                 "to move between "
                 "items, A to select, B to move up in scope."
             )
-        );
-    AddWidget(path, "Controller Menu Shortcut", WIDGET_CVAR_COMBOBOX)
-        .CVar(CVAR_SETTING("Controls.MenuShortcut"))
-        .RaceDisable(false)
-        .Options(
-            ComboboxOptions()
-                .Tooltip(
-                    "Which controller input opens the port menu. Select/Back/Share opens it when you let go of the "
-                    "button; Home and both stick clicks (L3 + R3) open and close it. Select/Back also closes the "
-                    "menu while it is open, whichever option is chosen."
-                )
-                .ComboMap(menuShortcutOptions)
-                .DefaultIndex(0)
         );
     AddWidget(path, "Menu Background Opacity", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar(CVAR_SETTING("Menu.BackgroundOpacity"))
