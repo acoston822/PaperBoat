@@ -513,8 +513,9 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
             SPDLOG_INFO("[controller] device {} button mask {:#x}", i, mask);
             sLastMask[i] = mask;
         }
-        const uint32_t menuButtons = (1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_GUIDE) |
-                                     (1u << SDL_CONTROLLER_BUTTON_MISC1);
+        // Back/Select is left to the engine's own toggle: handling it here as well made the two cancel
+        // each other out, so the menu never opened.
+        const uint32_t menuButtons = (1u << SDL_CONTROLLER_BUTTON_GUIDE) | (1u << SDL_CONTROLLER_BUTTON_MISC1);
         const uint32_t sticks = (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK);
         if ((mask & menuButtons) || (mask & sticks) == sticks) {
             down = true;
@@ -529,10 +530,8 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
 
     ImGuiIO& io = ImGui::GetIO();
 
-    // The engine's own Back-button toggle only runs while gamepad navigation is already on, so it
-    // closes the menu but can never open it. This opens it (and closes it if the saved choice
-    // turned navigation off). Navigation is switched on only after Back is released, otherwise the
-    // engine would see the same press and close the menu again straight away.
+    // Home/Guide, Share/Capture or both stick clicks open and close the menu. Navigation is switched
+    // on only after the button is released, so the engine can't act on the same press.
     static bool sNavPending = false;
     const auto window = Ship::Context::GetRawInstance()->GetWindow();
     if (window == nullptr || window->GetGui() == nullptr) {
@@ -552,7 +551,8 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
 
     const bool pressed = down && !sWasDown;
     sWasDown = down;
-    if (!pressed || navOn || menu == nullptr) {
+    (void) navOn;
+    if (!pressed || menu == nullptr) {
         return;
     }
 
