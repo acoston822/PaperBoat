@@ -3,8 +3,28 @@
 #include "FrameStats.h"
 
 #include <spdlog/spdlog.h>
+#ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>
+#endif
 
 extern "C" {
+// First line of the log: which build this is (the version and build number stamped into the app).
+void FrameEvents_LogBuild(void) {
+#ifdef __APPLE__
+    char ver[64] = "?", build[64] = "?";
+    CFBundleRef b = CFBundleGetMainBundle();
+    if (b) {
+        CFTypeRef v = CFBundleGetValueForInfoDictionaryKey(b, CFSTR("CFBundleShortVersionString"));
+        CFTypeRef n = CFBundleGetValueForInfoDictionaryKey(b, CFSTR("CFBundleVersion"));
+        if (v && CFGetTypeID(v) == CFStringGetTypeID())
+            CFStringGetCString((CFStringRef) v, ver, sizeof(ver), kCFStringEncodingUTF8);
+        if (n && CFGetTypeID(n) == CFStringGetTypeID())
+            CFStringGetCString((CFStringRef) n, build, sizeof(build), kCFStringEncodingUTF8);
+    }
+    SPDLOG_INFO("[frame-stats] build version={} build={}", ver, build);
+#endif
+}
+
 void* get_current_map_config(void); // MapConfig*; its first member is the char* id
 int get_game_mode(void);
 

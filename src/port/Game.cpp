@@ -9,6 +9,7 @@
 #include "Engine.h"
 #include "port/DevTools/ThreadWatchdog.h"
 #include "port/DevTools/FrameStats.h"
+extern "C" void FrameEvents_LogBuild(void);
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/os/OS.h"
 #include <spdlog/spdlog.h>
@@ -133,6 +134,7 @@ extern "C"
 
     Graphics_EnableNusysThreads();
     GameEngine::Create(argc, argv);
+    FrameEvents_LogBuild();
 
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
 

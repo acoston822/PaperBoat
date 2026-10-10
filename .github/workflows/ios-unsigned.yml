@@ -38,12 +38,19 @@ jobs:
           APP=$(find build-ios -name '*.app' -path '*Release-iphoneos*' -maxdepth 4 | head -1)
           echo "App bundle: $APP"
           test -n "$APP"
+          # Stamp the run number into the app so each build can be told apart:
+          # it shows as the app's version/build and is printed at the top of Paperboat.log.
+          PLIST="$APP/Info.plist"
+          BASE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE}-b${{ github.run_number }}" "$PLIST"
           mkdir -p out/Payload
           cp -R "$APP" out/Payload/
           (cd out && zip -qry Paperboat-unsigned.ipa Payload)
+          mv out/Paperboat-unsigned.ipa out/Paperboat-b${{ github.run_number }}-unsigned.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:
-          name: Paperboat-unsigned-ipa
-          path: out/Paperboat-unsigned.ipa
+          name: Paperboat-unsigned-ipa-b${{ github.run_number }}
+          path: out/Paperboat-b${{ github.run_number }}-unsigned.ipa
