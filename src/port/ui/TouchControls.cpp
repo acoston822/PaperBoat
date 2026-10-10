@@ -482,6 +482,7 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
     // Any of these counts as the menu button: controllers report their "select/view/share"
     // button under different names. Holding both stick clicks also works.
     bool down = false;
+    bool backDown = false;
     const int joysticks = SDL_NumJoysticks();
     static int sLastJoysticks = -1;
     static uint32_t sLastMask[8] = {};
@@ -520,6 +521,9 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
         if ((mask & menuButtons) || (mask & sticks) == sticks) {
             down = true;
         }
+        if (mask & (1u << SDL_CONTROLLER_BUTTON_BACK)) {
+            backDown = true;
+        }
     }
     sLastJoysticks = joysticks;
 
@@ -541,6 +545,22 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
     const auto gui = window->GetGui();
     const auto menu = gui->GetMenu();
     const bool navOn = (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) != 0;
+
+    // Back/Select: the engine's own toggle can close the menu but not open it. Opening on RELEASE
+    // (not press) means the engine, which switches gamepad navigation on as soon as the menu
+    // shows, never sees the same press and closes it again.
+    static bool sBackWasDown = false;
+    static bool sBackOpenOnRelease = false;
+    if (backDown && !sBackWasDown) {
+        sBackOpenOnRelease = menu != nullptr && !menu->IsVisible() && !navOn;
+    }
+    if (!backDown && sBackWasDown && sBackOpenOnRelease) {
+        sBackOpenOnRelease = false;
+        if (menu != nullptr && !menu->IsVisible()) {
+            menu->ToggleVisibility();
+        }
+    }
+    sBackWasDown = backDown;
 
     if (sNavPending && !down) {
         sNavPending = false;
