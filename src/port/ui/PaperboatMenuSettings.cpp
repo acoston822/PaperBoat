@@ -327,6 +327,15 @@ void PaperboatMenu::AddMenuSettings() {
                 "Opacity of the on-screen controls."
             )
         );
+    AddWidget(path, "Show Touch D-Pad", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("ShowDpad"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(true).Tooltip(
+                "Shows the on-screen D-pad. Turn it off to remove the D-pad from the screen; the other "
+                "controls are unaffected."
+            )
+        );
     AddWidget(path, "Edit Touch Layout", WIDGET_BUTTON)
         .Options(
             ButtonOptions().Tooltip(

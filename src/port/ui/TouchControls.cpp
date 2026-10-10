@@ -282,6 +282,10 @@ void ComputeLayout(OverlayState& state) {
     // (with the shared hub), so adjacent placement reassembles the cross.
     const ImVec2 d(3.4f * u, h - 9.8f * u);
     const float dOff = 0.75f * u;
+    // "Show Touch D-Pad" off: leave the four arms out entirely, so they are neither drawn, hit-tested nor
+    // draggable in the layout editor.
+    const bool showDpad = CVarGetInteger(CVAR_TOUCH("ShowDpad"), 1) != 0;
+    if (showDpad) {
     state.gameButtons.push_back(make(
         BTN_DUP, "DUp", "D", "Dpad-Up", "textures/buttons/DPadUp.png", "Dpad-Up Outline",
         "textures/buttons/DPadUpOutline.png", rDUp, kGray, 0, -1, ImVec2(d.x, d.y - dOff), 1.0f * u
@@ -298,6 +302,7 @@ void ComputeLayout(OverlayState& state) {
         BTN_DRIGHT, "DRight", "D", "Dpad-Right", "textures/buttons/DPadRight.png", "Dpad-Right Outline",
         "textures/buttons/DPadRightOutline.png", rDRight, kGray, 1, 0, ImVec2(d.x + dOff, d.y), 0.45f * u
     ));
+    }
     // Start, bottom-center.
     state.gameButtons.push_back(make(
         BTN_START, "Start", "S", "Start-Btn", "textures/buttons/StartBtn.png", "Start-Btn Outline",
