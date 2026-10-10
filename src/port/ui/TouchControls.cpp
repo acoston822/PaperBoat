@@ -464,6 +464,65 @@ std::vector<Finger> GatherFingers() {
 
 } // namespace
 
+#ifndef CVAR_IMGUI_CONTROLLER_NAV
+#define CVAR_IMGUI_CONTROLLER_NAV "gControlNav"
+#endif
+
+// Opens/closes the port menu from a connected game controller's Back/Select button.
+// Called once per input read. Controller menu navigation is switched on by default so the
+// pad can also move around the menu (D-pad, A to select, B to go back); a saved choice wins.
+extern "C" void ControllerMenuShortcut_Poll(void) {
+    static bool sRegistered = false;
+    static bool sWasDown = false;
+
+    if (ImGui::GetCurrentContext() == nullptr) {
+        return;
+    }
+
+    bool down = false;
+    const int joysticks = SDL_NumJoysticks();
+    for (int i = 0; i < joysticks && !down; i++) {
+        if (!SDL_IsGameController(i)) {
+            continue;
+        }
+        SDL_GameController* pad = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
+        if (pad != nullptr && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK)) {
+            down = true;
+        }
+    }
+
+    if (!sRegistered && joysticks > 0) {
+        CVarRegisterInteger(CVAR_IMGUI_CONTROLLER_NAV, 1);
+        sRegistered = true;
+    }
+
+    const bool pressed = down && !sWasDown;
+    sWasDown = down;
+    if (!pressed) {
+        return;
+    }
+
+    const auto window = Ship::Context::GetRawInstance()->GetWindow();
+    if (window == nullptr || window->GetGui() == nullptr) {
+        return;
+    }
+    const auto gui = window->GetGui();
+    const auto menu = gui->GetMenu();
+    if (menu == nullptr) {
+        return;
+    }
+    menu->ToggleVisibility();
+
+    // Same bookkeeping the engine does for its own toggle: gamepad navigation (and blocking game
+    // input) only applies while a menu is on screen.
+    ImGuiIO& io = ImGui::GetIO();
+    if (CVarGetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) && gui->GetMenuOrMenubarVisible()) {
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    } else {
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+    }
+}
+
 extern "C" void TouchControls_ApplyPad(void* pads) {
     sState.active = false;
     sState.buttons = 0;
