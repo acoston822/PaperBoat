@@ -122,8 +122,13 @@ extern "C" void OS_StopViTicker(void) {
     }
 }
 
+static std::atomic<uint64_t> sLastPresentNsG { 0 };
+extern "C" uint64_t OS_ViLastPresentNs(void) {
+    return sLastPresentNsG.load(std::memory_order_relaxed);
+}
+
 extern "C" void OS_ViNotifyPresent(void) {
-    static std::atomic<uint64_t> sLastPresentNs { 0 };
+    auto& sLastPresentNs = sLastPresentNsG;
     FrameStats::Tick(FrameStats::kPresent, sLastPresentNs);
     const auto now = Clock::now();
     {

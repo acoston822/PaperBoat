@@ -12,6 +12,7 @@
 extern "C" void FrameEvents_LogBuild(void);
 extern "C" uint32_t Graphics_TickCount(void);
 extern "C" uint32_t Graphics_BackloggedTicks(void);
+extern "C" uint64_t OS_ViLastPresentNs(void);
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/os/OS.h"
 #include <spdlog/spdlog.h>
@@ -78,17 +79,21 @@ void LogPipelineState(const char* tag, double gapMs, uint32_t ticks, uint32_t ba
                 st.gfxMesgQ, st.taskMgrQ, st.areaID, st.mapID);
 }
 
+uint32_t sRcpTasks = 0, sRcpSwapTasks = 0, sRcpStashed = 0;
+
 int ServiceRcp() {
     OSTask* task = OS_SpTakePendingTask();
     if (task == nullptr) {
         return 0;
     }
+    sRcpTasks++;
     const void* nuTask = Graphics_TaskFromList(task);
     const uint32_t flags = Graphics_TaskFlags(nuTask);
     InterpPair pair = TakePair(nuTask);
     Gfx* list = (Gfx*) task->t.data_ptr;
 
     if (flags & NU_SC_SWAPBUFFER) {
+        sRcpSwapTasks++;
         FrameInterpolation_BeginRenderPass(pair.prev, pair.curr, pair.should);
         Graphics_DrawFrame(sPendingNoSwap, list, pair.capturePrevFrame);
         FrameInterpolation_ReleasePair(pair.prev, pair.curr);
@@ -100,6 +105,7 @@ int ServiceRcp() {
         if (sPendingNoSwap != nullptr) {
             FrameInterpolation_ReleasePair(sPendingNoSwapPair.prev, sPendingNoSwapPair.curr);
         }
+        sRcpStashed++;
         sPendingNoSwap = list;
         sPendingNoSwapPair = pair;
     }
@@ -156,8 +162,8 @@ extern "C"
 
     Graphics_Start();
 
-    uint64_t fsLastRender = FrameStats::NowNs();
     uint32_t fsGapTicks = Graphics_TickCount(), fsGapBacklog = Graphics_BackloggedTicks();
+    uint32_t fsGapTasks = 0, fsGapSwaps = 0, fsGapStash = 0;
     bool fsGapReported = false;
 
     while (wnd->IsRunning()) {
@@ -173,22 +179,28 @@ extern "C"
         FrameStats::Record(FrameStats::kSi, fsT2 - fsT1);
         FrameStats::Record(FrameStats::kDrain, fsT3 - fsT2);
         const bool fsRendered = ServiceRcp() != 0;
+        if (fsRendered) {
+            FrameStats::Record(FrameStats::kRender, FrameStats::NowNs() - fsT3);
+        }
         {
             const uint64_t fsNow = FrameStats::NowNs();
-            if (fsRendered) {
-                FrameStats::Record(FrameStats::kRender, fsNow - fsT3);
-                if (fsGapReported) {
-                    LogPipelineState("render resumed", (fsNow - fsLastRender) / 1e6,
-                                     Graphics_TickCount() - fsGapTicks, Graphics_BackloggedTicks() - fsGapBacklog);
-                    fsGapReported = false;
-                }
-                fsLastRender = fsNow;
+            const uint64_t lastPresent = OS_ViLastPresentNs();
+            const double gapMs = lastPresent != 0 && fsNow > lastPresent ? (fsNow - lastPresent) / 1e6 : 0.0;
+            if (!fsGapReported && gapMs > 120.0) {
+                fsGapReported = true;
                 fsGapTicks = Graphics_TickCount();
                 fsGapBacklog = Graphics_BackloggedTicks();
-            } else if (!fsGapReported && fsNow - fsLastRender > 120000000ull) {
-                fsGapReported = true;
-                LogPipelineState("render gap started", (fsNow - fsLastRender) / 1e6,
-                                 Graphics_TickCount() - fsGapTicks, Graphics_BackloggedTicks() - fsGapBacklog);
+                fsGapTasks = sRcpTasks;
+                fsGapSwaps = sRcpSwapTasks;
+                fsGapStash = sRcpStashed;
+                LogPipelineState("present gap started", gapMs, 0, 0);
+            } else if (fsGapReported && gapMs < 60.0) {
+                fsGapReported = false;
+                SPDLOG_INFO("[frame-stats] present resumed: during gap ticks={} backlogged={} rcpTasks={} swapTasks={} "
+                            "stashed={}",
+                            Graphics_TickCount() - fsGapTicks, Graphics_BackloggedTicks() - fsGapBacklog,
+                            sRcpTasks - fsGapTasks, sRcpSwapTasks - fsGapSwaps, sRcpStashed - fsGapStash);
+                LogPipelineState("present resumed state", 0, 0, 0);
             }
         }
         {
