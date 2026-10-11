@@ -8,7 +8,7 @@
 
 namespace FrameStats {
 
-enum Slot { kStart, kSi, kDrain, kRender, kIdle, kPresent, kRetrace, kSlotCount };
+enum Slot { kStart, kSi, kDrain, kRender, kIdle, kPresent, kRetrace, kDraw, kSlotCount };
 
 struct Counter {
     std::atomic<uint64_t> n { 0 }, sumNs { 0 }, maxNs { 0 }, over25 { 0 }, over40 { 0 };
@@ -75,18 +75,19 @@ inline bool Poll(char* out, size_t cap) {
     }
     next = now + 1000000000ull;
     const Snap st = Take(kStart), si = Take(kSi), dr = Take(kDrain), re = Take(kRender), id = Take(kIdle),
-               pr = Take(kPresent), rt = Take(kRetrace);
+               pr = Take(kPresent), rt = Take(kRetrace), dw = Take(kDraw);
     std::snprintf(
         out, cap,
         "[frame-stats] present n=%llu avg=%lluus max=%lluus >25ms=%llu >40ms=%llu | retrace n=%llu avg=%lluus "
         "max=%lluus >25ms=%llu | render n=%llu avg=%lluus max=%lluus | startFrame max=%lluus | si max=%lluus | "
-        "drain max=%lluus | idleSleeps=%llu max=%lluus",
+        "drain max=%lluus | idleSleeps=%llu max=%lluus | draw n=%llu avg=%lluus max=%lluus >25ms=%llu",
         (unsigned long long) pr.n, (unsigned long long) pr.avgUs, (unsigned long long) pr.maxUs,
         (unsigned long long) pr.o25, (unsigned long long) pr.o40, (unsigned long long) rt.n,
         (unsigned long long) rt.avgUs, (unsigned long long) rt.maxUs, (unsigned long long) rt.o25,
         (unsigned long long) re.n, (unsigned long long) re.avgUs, (unsigned long long) re.maxUs,
         (unsigned long long) st.maxUs, (unsigned long long) si.maxUs, (unsigned long long) dr.maxUs,
-        (unsigned long long) id.n, (unsigned long long) id.maxUs
+        (unsigned long long) id.n, (unsigned long long) id.maxUs, (unsigned long long) dw.n,
+        (unsigned long long) dw.avgUs, (unsigned long long) dw.maxUs, (unsigned long long) dw.o25
     );
     return true;
 }
