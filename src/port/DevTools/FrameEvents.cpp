@@ -62,7 +62,7 @@ void FrameEvents_Event(const char* what) {
 // Logs a phase of the game/graphics thread that took 30 ms or more, with the map and game mode.
 void FrameEvents_SlowPhase(const char* what, uint64_t t0) {
     const double ms = (FrameStats::NowNs() - t0) / 1.0e6;
-    if (ms >= 30.0) {
+    if (ms >= 80.0) {
         SPDLOG_INFO("[frame-stats] slow {} took {:.1f}ms map={} mode={}", what, ms, CurMapId(), get_game_mode());
     }
 }
