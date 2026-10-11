@@ -6,6 +6,10 @@
 #include <mutex>
 
 #include <SDL2/SDL_thread.h>
+#include <chrono>
+#include <dlfcn.h>
+#include <pthread.h>
+#include <spdlog/spdlog.h>
 
 extern "C" {
 #include "libultraship/libultra/message.h"
@@ -56,8 +60,30 @@ void ClearBlockedWait(int slot) {
     }
 }
 
-bool WaitOn(std::unique_lock<std::mutex>& lock, OSMesgQueue* mq, QueueSync& sync, int32_t flag, bool isSend) {
+// Diagnostics: report blocking queue waits that take ≥ 60 ms (frame-pacing stall hunt).
+void ReportSlowWait(OSMesgQueue* mq, bool isSend, double ms, void* caller) {
+    char tname[32] = "?";
+    pthread_getname_np(pthread_self(), tname, sizeof(tname));
+    Dl_info info {};
+    const char* sym = "?";
+    long off = 0;
+    if (dladdr(caller, &info)) {
+        if (info.dli_sname) {
+            sym = info.dli_sname;
+            off = (char*) caller - (char*) info.dli_saddr;
+        } else if (info.dli_fbase) {
+            off = (char*) caller - (char*) info.dli_fbase;
+        }
+    }
+    SPDLOG_INFO("[frame-stats] slow queue {} wait {:.1f}ms thread={} tid={} queue={} caller={}+{:#x}",
+                isSend ? "send" : "recv", ms, tname, (unsigned long) SDL_ThreadID(), (void*) mq, sym, off);
+}
+
+bool WaitOn(std::unique_lock<std::mutex>& lock, OSMesgQueue* mq, QueueSync& sync, int32_t flag, bool isSend,
+            void* caller = nullptr) {
     int waitSlot = -1;
+    std::chrono::steady_clock::time_point waitStart;
+    bool waited = false;
     while (isSend ? mq->validCount >= mq->msgCount : mq->validCount == 0) {
         if (flag != OS_MESG_BLOCK || !sync.blockingEnabled) {
             ClearBlockedWait(waitSlot);
@@ -65,10 +91,18 @@ bool WaitOn(std::unique_lock<std::mutex>& lock, OSMesgQueue* mq, QueueSync& sync
         }
         if (waitSlot < 0) {
             waitSlot = MarkBlockedWait(mq, isSend ? 1 : 0);
+            waitStart = std::chrono::steady_clock::now();
+            waited = true;
         }
         (isSend ? sync.notFull : sync.notEmpty).wait(lock);
     }
     ClearBlockedWait(waitSlot);
+    if (waited) {
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - waitStart).count();
+        if (ms >= 60.0) {
+            ReportSlowWait(mq, isSend, ms, caller);
+        }
+    }
     return true;
 }
 
@@ -90,7 +124,7 @@ void osCreateMesgQueue(OSMesgQueue* mq, OSMesg* msgBuf, int32_t count) {
 int32_t osSendMesg(OSMesgQueue* mq, OSMesg msg, int32_t flag) {
     std::unique_lock<std::mutex> lock(sMesgMutex);
     QueueSync& sync = SyncFor(mq);
-    if (!WaitOn(lock, mq, sync, flag, true)) {
+    if (!WaitOn(lock, mq, sync, flag, true, __builtin_return_address(0))) {
         return -1;
     }
     s32 last = (mq->first + mq->validCount) % mq->msgCount;
@@ -116,7 +150,7 @@ int32_t osJamMesg(OSMesgQueue* mq, OSMesg msg, int32_t flag) {
 int32_t osRecvMesg(OSMesgQueue* mq, OSMesg* msg, int32_t flag) {
     std::unique_lock<std::mutex> lock(sMesgMutex);
     QueueSync& sync = SyncFor(mq);
-    if (!WaitOn(lock, mq, sync, flag, false)) {
+    if (!WaitOn(lock, mq, sync, flag, false, __builtin_return_address(0))) {
         return -1;
     }
     if (msg != nullptr) {
