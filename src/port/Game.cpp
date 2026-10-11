@@ -10,6 +10,8 @@
 #include "port/DevTools/ThreadWatchdog.h"
 #include "port/DevTools/FrameStats.h"
 extern "C" void FrameEvents_LogBuild(void);
+extern "C" uint32_t Graphics_TickCount(void);
+extern "C" uint32_t Graphics_BackloggedTicks(void);
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/os/OS.h"
 #include <spdlog/spdlog.h>
@@ -64,6 +66,16 @@ InterpPair TakePair(const void* nuTask) {
         sTaskInterp.erase(it);
     }
     return pair;
+}
+
+// Diagnostics: when no frame reaches the renderer for a while, log where the pipeline is stuck.
+void LogPipelineState(const char* tag, double gapMs, uint32_t ticks, uint32_t backlogged) {
+    NusysWatchdogState st {};
+    Graphics_GetWatchdogState(&st);
+    SPDLOG_INFO("[frame-stats] {} gap={:.0f}ms ticks={} backlogged={} spool={} retraceQ={} rspQ={} rdpQ={} "
+                "gfxReqQ={} gfxMesgQ={} taskMgrQ={} area={} map={}",
+                tag, gapMs, ticks, backlogged, st.taskSpool, st.retraceQ, st.rspQ, st.rdpQ, st.gfxRequestQ,
+                st.gfxMesgQ, st.taskMgrQ, st.areaID, st.mapID);
 }
 
 int ServiceRcp() {
@@ -144,6 +156,10 @@ extern "C"
 
     Graphics_Start();
 
+    uint64_t fsLastRender = FrameStats::NowNs();
+    uint32_t fsGapTicks = Graphics_TickCount(), fsGapBacklog = Graphics_BackloggedTicks();
+    bool fsGapReported = false;
+
     while (wnd->IsRunning()) {
         ThreadWatchdog_Beat(WATCHDOG_MAIN_LOOP);
         const uint64_t fsT0 = FrameStats::NowNs();
@@ -157,8 +173,23 @@ extern "C"
         FrameStats::Record(FrameStats::kSi, fsT2 - fsT1);
         FrameStats::Record(FrameStats::kDrain, fsT3 - fsT2);
         const bool fsRendered = ServiceRcp() != 0;
-        if (fsRendered) {
-            FrameStats::Record(FrameStats::kRender, FrameStats::NowNs() - fsT3);
+        {
+            const uint64_t fsNow = FrameStats::NowNs();
+            if (fsRendered) {
+                FrameStats::Record(FrameStats::kRender, fsNow - fsT3);
+                if (fsGapReported) {
+                    LogPipelineState("render resumed", (fsNow - fsLastRender) / 1e6,
+                                     Graphics_TickCount() - fsGapTicks, Graphics_BackloggedTicks() - fsGapBacklog);
+                    fsGapReported = false;
+                }
+                fsLastRender = fsNow;
+                fsGapTicks = Graphics_TickCount();
+                fsGapBacklog = Graphics_BackloggedTicks();
+            } else if (!fsGapReported && fsNow - fsLastRender > 120000000ull) {
+                fsGapReported = true;
+                LogPipelineState("render gap started", (fsNow - fsLastRender) / 1e6,
+                                 Graphics_TickCount() - fsGapTicks, Graphics_BackloggedTicks() - fsGapBacklog);
+            }
         }
         {
             char fsLine[640];

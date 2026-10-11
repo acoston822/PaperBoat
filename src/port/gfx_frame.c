@@ -42,8 +42,21 @@ void Graphics_EnableNusysThreads(void) {
 u64 FrameEvents_Now(void);
 void FrameEvents_SlowPhase(const char* what, u64 t0);
 
+static volatile u32 sTickCount = 0;
+static volatile u32 sBackloggedTicks = 0; // callbacks that ran with >= 3 tasks pending (no frame submitted)
+u32 Graphics_TickCount(void) {
+    return sTickCount;
+}
+u32 Graphics_BackloggedTicks(void) {
+    return sBackloggedTicks;
+}
+
 static void Graphics_Retrace(u32 gfxTaskNum) {
     u64 fsT0 = FrameEvents_Now();
+    sTickCount++;
+    if (gfxTaskNum >= 3) {
+        sBackloggedTicks++;
+    }
     ThreadWatchdog_Beat(WATCHDOG_GAME_TICK);
     AudioVolume_Update();
     FrameInterpolation_StartRecord();
