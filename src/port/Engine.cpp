@@ -12,7 +12,6 @@
 #include "port/audio/AudioVolume.h"
 #include "port/os/OS.h"
 #include "port/DevTools/ThreadWatchdog.h"
-#include "port/DevTools/FrameStats.h"
 #include "port/TextureCache.h"
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
@@ -1095,9 +1094,7 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
             interpreter->mInterpolationIndex++;
             continue;
         }
-        const uint64_t fsDraw0 = FrameStats::NowNs();
         wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements[i], {});
-        FrameStats::Record(FrameStats::kDraw, FrameStats::NowNs() - fsDraw0);
         OS_ViNotifyPresent();
         interpreter->mInterpolationIndex++;
     }
