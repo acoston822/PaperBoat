@@ -1,5 +1,6 @@
 #include "SaveEditor.h"
 #include "port/ui/UIWidgets.hpp"
+#include "port/ActorTypeNames.h"
 #include <string>
 #include <spdlog/fmt/fmt.h>
 #include <imgui.h>
@@ -22,6 +23,7 @@ extern s8 set_global_byte(s32 index, s32 value);
 extern s32 set_global_flag(s32 index);
 extern s32 clear_global_flag(s32 index);
 extern s32 get_global_flag(s32 index);
+extern void enforce_hpfp_limits(void);
 
 extern const s32 CookableItemIDs[];
 extern const s32 CookableDiscoveredFlags[];
@@ -64,7 +66,16 @@ std::vector<std::pair<const char*, const char*>> partyMemberList = {
 typedef struct {
     const char* name;
     s32 itemID;
+    s32 obtainedFlag;
+    bool returnedToParakarry;
 } LetterData;
+
+typedef enum {
+    LETTER_NOT_FOUND,
+    LETTER_WITH_PARAKARRY,
+    LETTER_IN_ITEMS,
+    LETTER_DELIVERED,
+} LetterState;
 
 typedef struct {
     const char* location;
@@ -72,40 +83,40 @@ typedef struct {
     s32 flag;
 } StarPieceData;
 
-typedef struct {
-    const char* name;
-    s32 actorType;
-    bool isUnused; // UNUSED_*/_DUP/_STUB entries, hidden behind a toggle
-} TattleData;
-
-// Standalone letters Parakarry delivers, followed by the chain letter quest that ends
-// back at Goompapa with the Lucky Day badge. Chain entries are named after the recipient.
+// Standalone letters Parakarry delivers, keyed by the flag set when the letter is picked up.
+// Delivering one only removes the key item, so "delivered" is picked up but no longer held.
 std::vector<LetterData> letterList = {
-    { "Letter to Merlon", ITEM_LETTER_TO_MERLON },
-    { "Letter to Goompa", ITEM_LETTER_TO_GOOMPA },
-    { "Letter to Mort T.", ITEM_LETTER_TO_MORT_T },
-    { "Letter to Russ T.", ITEM_LETTER_TO_RUSS_T },
-    { "Letter to Mayor Penguin", ITEM_LETTER_TO_MAYOR_PENGUIN },
-    { "Letter to Merlow", ITEM_LETTER_TO_MERLOW },
-    { "Letter to Fice T.", ITEM_LETTER_TO_FICE_T },
-    { "Letter to Nomadimouse", ITEM_LETTER_TO_NOMADIMOUSE },
-    { "Letter to Minh T.", ITEM_LETTER_TO_MINH_T },
-    { "Letter to Igor", ITEM_LETTER_TO_IGOR },
-    { "Letter to Kolorado", ITEM_LETTER_TO_KOLORADO },
-    { "Chain: Goompapa (1st)", ITEM_LETTER_CHAIN_GOOMPAPA_1 },
-    { "Chain: Franky", ITEM_LETTER_CHAIN_FRANKY },
-    { "Chain: Muss T.", ITEM_LETTER_CHAIN_MUSS_T },
-    { "Chain: Koover (1st)", ITEM_LETTER_CHAIN_KOOVER_1 },
-    { "Chain: Fishmael", ITEM_LETTER_CHAIN_FISHMAEL },
-    { "Chain: Koover (2nd)", ITEM_LETTER_CHAIN_KOOVER_2 },
-    { "Chain: Mr. E", ITEM_LETTER_CHAIN_MR_E },
-    { "Chain: Miss T.", ITEM_LETTER_CHAIN_MISS_T },
-    { "Chain: Little Mouser", ITEM_LETTER_CHAIN_LITTLE_MOUSER },
-    { "Chain: Dane T. (1st)", ITEM_LETTER_CHAIN_DANE_T_1 },
-    { "Chain: Yoshi Kid", ITEM_LETTER_CHAIN_YOSHI_KID },
-    { "Chain: Dane T. (2nd)", ITEM_LETTER_CHAIN_DANE_T_2 },
-    { "Chain: Frost T.", ITEM_LETTER_CHAIN_FROST_T },
-    { "Chain: Goompapa (2nd)", ITEM_LETTER_CHAIN_GOOMPAPA_2 },
+    { "Letter to Merlon", ITEM_LETTER_TO_MERLON, GF_IWA01_Item_Letter01, true },
+    { "Letter to Goompa", ITEM_LETTER_TO_GOOMPA, GF_SBK30_Tree2_Letter02, false },
+    { "Letter to Mort T.", ITEM_LETTER_TO_MORT_T, GF_SBK36_Tree9_Letter03, false },
+    { "Letter to Russ T.", ITEM_LETTER_TO_RUSS_T, GF_JAN04_Tree2_Letter04, false },
+    { "Letter to Mayor Penguin", ITEM_LETTER_TO_MAYOR_PENGUIN, GF_SAM04_Item_Letter05, false },
+    { "Letter to Merlow", ITEM_LETTER_TO_MERLOW, GF_SAM05_Item_Letter06, false },
+    { "Letter to Fice T.", ITEM_LETTER_TO_FICE_T, GF_ARN02_Item_LetterFiceT, false },
+    { "Letter to Nomadimouse", ITEM_LETTER_TO_NOMADIMOUSE, GF_DRO02_Item_Letter08, false },
+    { "Letter to Minh T.", ITEM_LETTER_TO_MINH_T, GF_FLO17_Item_Letter09, false },
+    { "Letter to Igor", ITEM_LETTER_TO_IGOR, GF_JAN01_Item_Letter11, false },
+    { "Letter to Kolorado", ITEM_LETTER_TO_KOLORADO, GF_IWA03_Item_LettertoKolorado, true },
+};
+
+// The chain letter quest in delivery order, named after the recipient. Each letter is the reward
+// for delivering the one before it, so only the first has a pickup flag and the rest of the chain
+// is derived from which chain letter is currently held.
+std::vector<LetterData> chainLetterList = {
+    { "Goompapa (1st)", ITEM_LETTER_CHAIN_GOOMPAPA_1, GF_IWA04_Item_Letter10, true },
+    { "Muss T.", ITEM_LETTER_CHAIN_MUSS_T },
+    { "Koover (1st)", ITEM_LETTER_CHAIN_KOOVER_1 },
+    { "Fishmael", ITEM_LETTER_CHAIN_FISHMAEL },
+    { "Koover (2nd)", ITEM_LETTER_CHAIN_KOOVER_2 },
+    { "Mr. E", ITEM_LETTER_CHAIN_MR_E },
+    { "Miss T.", ITEM_LETTER_CHAIN_MISS_T },
+    { "Little Mouser", ITEM_LETTER_CHAIN_LITTLE_MOUSER },
+    { "Franky", ITEM_LETTER_CHAIN_FRANKY },
+    { "Dane T. (1st)", ITEM_LETTER_CHAIN_DANE_T_1 },
+    { "Yoshi Kid", ITEM_LETTER_CHAIN_YOSHI_KID },
+    { "Dane T. (2nd)", ITEM_LETTER_CHAIN_DANE_T_2 },
+    { "Frost T.", ITEM_LETTER_CHAIN_FROST_T },
+    { "Goompapa (2nd)", ITEM_LETTER_CHAIN_GOOMPAPA_2 },
 };
 
 // The 63 star pieces lying around the overworld - the same set Merluvlee can predict.
@@ -173,222 +184,6 @@ std::vector<StarPieceData> starPieceList = {
     { "Crystal Palace (pra_15)", "Overworld", GF_PRA15_Item_StarPiece },
     { "Crystal Palace (pra_21)", "Hidden Panel", GF_PRA21_HiddenPanel },
     { "Crystal Palace (pra_22)", "Hidden Panel", GF_PRA22_HiddenPanel },
-};
-
-// Tattle flags are one bit per ACTOR_TYPE_*, so this mirrors the whole actor type enum.
-std::vector<TattleData> tattleList = {
-    { "Red Goomba", ACTOR_TYPE_RED_GOOMBA, false },
-    { "Red Paragoomba", ACTOR_TYPE_RED_PARAGOOMBA, false },
-    { "Gloomba", ACTOR_TYPE_GLOOMBA, false },
-    { "Paragloomba", ACTOR_TYPE_PARAGLOOMBA, false },
-    { "Spiked Gloomba", ACTOR_TYPE_SPIKED_GLOOMBA, false },
-    { "Dark Koopa", ACTOR_TYPE_DARK_KOOPA, false },
-    { "Dark Paratroopa", ACTOR_TYPE_DARK_PARATROOPA, false },
-    { "Goomba", ACTOR_TYPE_GOOMBA, false },
-    { "Paragoomba", ACTOR_TYPE_PARAGOOMBA, false },
-    { "Spiked Goomba", ACTOR_TYPE_SPIKED_GOOMBA, false },
-    { "Fuzzy", ACTOR_TYPE_FUZZY, false },
-    { "Koopa Troopa", ACTOR_TYPE_KOOPA_TROOPA, false },
-    { "Paratroopa", ACTOR_TYPE_PARATROOPA, false },
-    { "Bob-omb", ACTOR_TYPE_BOB_OMB, false },
-    { "Bob-omb Dup", ACTOR_TYPE_BOB_OMB_DUP, true },
-    { "Bullet Bill", ACTOR_TYPE_BULLET_BILL, false },
-    { "Bill Blaster", ACTOR_TYPE_BILL_BLASTER, false },
-    { "Cleft", ACTOR_TYPE_CLEFT, false },
-    { "Monty Mole", ACTOR_TYPE_MONTY_MOLE, false },
-    { "Bandit", ACTOR_TYPE_BANDIT, false },
-    { "Pokey", ACTOR_TYPE_POKEY, false },
-    { "Pokey Mummy", ACTOR_TYPE_POKEY_MUMMY, false },
-    { "Swooper", ACTOR_TYPE_SWOOPER, false },
-    { "Buzzy Beetle", ACTOR_TYPE_BUZZY_BEETLE, false },
-    { "Stone Chomp", ACTOR_TYPE_STONE_CHOMP, false },
-    { "Piranha Plant", ACTOR_TYPE_PIRANHA_PLANT, false },
-    { "Forest Fuzzy", ACTOR_TYPE_FOREST_FUZZY, false },
-    { "Hyper Goomba", ACTOR_TYPE_HYPER_GOOMBA, false },
-    { "Hyper Paragoomba", ACTOR_TYPE_HYPER_PARAGOOMBA, false },
-    { "Hyper Cleft", ACTOR_TYPE_HYPER_CLEFT, false },
-    { "Clubba", ACTOR_TYPE_CLUBBA, false },
-    { "Shy Guy", ACTOR_TYPE_SHY_GUY, false },
-    { "Groove Guy", ACTOR_TYPE_GROOVE_GUY, false },
-    { "Sky Guy", ACTOR_TYPE_SKY_GUY, false },
-    { "Medi Guy", ACTOR_TYPE_MEDI_GUY, false },
-    { "Pyro Guy", ACTOR_TYPE_PYRO_GUY, false },
-    { "Spy Guy", ACTOR_TYPE_SPY_GUY, false },
-    { "Fuzzipede", ACTOR_TYPE_FUZZIPEDE, false },
-    { "Hurt Plant", ACTOR_TYPE_HURT_PLANT, false },
-    { "M. Bush", ACTOR_TYPE_M_BUSH, false },
-    { "Aqua Fuzzy", ACTOR_TYPE_AQUA_FUZZY, false },
-    { "Jungle Fuzzy", ACTOR_TYPE_JUNGLE_FUZZY, false },
-    { "Spear Guy", ACTOR_TYPE_SPEAR_GUY, false },
-    { "Lava Bubble", ACTOR_TYPE_LAVA_BUBBLE, false },
-    { "Spike Top", ACTOR_TYPE_SPIKE_TOP, false },
-    { "Putrid Piranha", ACTOR_TYPE_PUTRID_PIRANHA, false },
-    { "Lakitu", ACTOR_TYPE_LAKITU, false },
-    { "Spiny", ACTOR_TYPE_SPINY, false },
-    { "Monty Mole Boss", ACTOR_TYPE_MONTY_MOLE_BOSS, false },
-    { "Bzzap!", ACTOR_TYPE_BZZAP, false },
-    { "Crazee Dayzee", ACTOR_TYPE_CRAZEE_DAYZEE, false },
-    { "Amazy Dayzee", ACTOR_TYPE_AMAZY_DAYZEE, false },
-    { "Ruff Puff", ACTOR_TYPE_RUFF_PUFF, false },
-    { "Spike", ACTOR_TYPE_SPIKE, false },
-    { "Gulpit", ACTOR_TYPE_GULPIT, false },
-    { "Gulpit Rocks", ACTOR_TYPE_GULPIT_ROCKS, false },
-    { "White Clubba", ACTOR_TYPE_WHITE_CLUBBA, false },
-    { "Frost Piranha", ACTOR_TYPE_FROST_PIRANHA, false },
-    { "Swoopula", ACTOR_TYPE_SWOOPULA, false },
-    { "Duplighost", ACTOR_TYPE_DUPLIGHOST, false },
-    { "Ghost Goombario", ACTOR_TYPE_GHOST_GOOMBARIO, false },
-    { "Ghost Kooper", ACTOR_TYPE_GHOST_KOOPER, false },
-    { "Ghost Bombette", ACTOR_TYPE_GHOST_BOMBETTE, false },
-    { "Ghost Parakarry", ACTOR_TYPE_GHOST_PARAKARRY, false },
-    { "Ghost Bow", ACTOR_TYPE_GHOST_BOW, false },
-    { "Ghost Watt", ACTOR_TYPE_GHOST_WATT, false },
-    { "Ghost Sushie", ACTOR_TYPE_GHOST_SUSHIE, false },
-    { "Ghost Lakilester", ACTOR_TYPE_GHOST_LAKILESTER, false },
-    { "Albino Dino", ACTOR_TYPE_ALBINO_DINO, false },
-    { "Ember", ACTOR_TYPE_EMBER, false },
-    { "Bony Beetle", ACTOR_TYPE_BONY_BEETLE, false },
-    { "Dry Bones", ACTOR_TYPE_DRY_BONES, false },
-    { "Dry Bones 2", ACTOR_TYPE_DRY_BONES2, false },
-    { "Bombshell Blaster", ACTOR_TYPE_BOMBSHELL_BLASTER, false },
-    { "Bombshell Bill", ACTOR_TYPE_BOMBSHELL_BILL, false },
-    { "Hammer Bros", ACTOR_TYPE_HAMMER_BROS, false },
-    { "Koopatrol", ACTOR_TYPE_KOOPATROL, false },
-    { "Magikoopa", ACTOR_TYPE_MAGIKOOPA, false },
-    { "Flying Magikoopa", ACTOR_TYPE_FLYING_MAGIKOOPA, false },
-    { "Magiclone", ACTOR_TYPE_MAGICLONE, false },
-    { "Flying Magiclone", ACTOR_TYPE_FLYING_MAGICLONE, false },
-    { "Red Magikoopa", ACTOR_TYPE_RED_MAGIKOOPA, false },
-    { "Flying Red Magikoopa", ACTOR_TYPE_FLYING_RED_MAGIKOOPA, false },
-    { "Green Magikoopa", ACTOR_TYPE_GREEN_MAGIKOOPA, false },
-    { "Flying Green Magikoopa", ACTOR_TYPE_FLYING_GREEN_MAGIKOOPA, false },
-    { "Yellow Magikoopa", ACTOR_TYPE_YELLOW_MAGIKOOPA, false },
-    { "Flying Yellow Magikoopa", ACTOR_TYPE_FLYING_YELLOW_MAGIKOOPA, false },
-    { "Gray Magikoopa", ACTOR_TYPE_GRAY_MAGIKOOPA, false },
-    { "Flying Gray Magikoopa", ACTOR_TYPE_FLYING_GRAY_MAGIKOOPA, false },
-    { "White Magikoopa", ACTOR_TYPE_WHITE_MAGIKOOPA, false },
-    { "Flying White Magikoopa", ACTOR_TYPE_FLYING_WHITE_MAGIKOOPA, false },
-    { "Unused", ACTOR_TYPE_UNUSED_5B, true },
-    { "Unused", ACTOR_TYPE_UNUSED_5C, true },
-    { "Unused", ACTOR_TYPE_UNUSED_5D, true },
-    { "Unused", ACTOR_TYPE_UNUSED_5E, true },
-    { "Unused", ACTOR_TYPE_UNUSED_5F, true },
-    { "Unused", ACTOR_TYPE_UNUSED_60, true },
-    { "Unused", ACTOR_TYPE_UNUSED_61, true },
-    { "Unused", ACTOR_TYPE_UNUSED_62, true },
-    { "Unused", ACTOR_TYPE_UNUSED_63, true },
-    { "Unused", ACTOR_TYPE_UNUSED_64, true },
-    { "Unused", ACTOR_TYPE_UNUSED_65, true },
-    { "Unused", ACTOR_TYPE_UNUSED_66, true },
-    { "Unused", ACTOR_TYPE_UNUSED_67, true },
-    { "Unused", ACTOR_TYPE_UNUSED_68, true },
-    { "Unused", ACTOR_TYPE_UNUSED_69, true },
-    { "Unused", ACTOR_TYPE_UNUSED_6A, true },
-    { "Monty Hole", ACTOR_TYPE_MONTY_HOLE, false },
-    { "Unused", ACTOR_TYPE_UNUSED_6C, true },
-    { "Unused", ACTOR_TYPE_UNUSED_6D, true },
-    { "Player", ACTOR_TYPE_PLAYER, false },
-    { "Goombario", ACTOR_TYPE_GOOMBARIO, false },
-    { "Kooper", ACTOR_TYPE_KOOPER, false },
-    { "Bombette", ACTOR_TYPE_BOMBETTE, false },
-    { "Parakarry", ACTOR_TYPE_PARAKARRY, false },
-    { "Bow", ACTOR_TYPE_BOW, false },
-    { "Watt", ACTOR_TYPE_WATT, false },
-    { "Sushie", ACTOR_TYPE_SUSHIE, false },
-    { "Lakilester", ACTOR_TYPE_LAKILESTER, false },
-    { "Twink", ACTOR_TYPE_TWINK, false },
-    { "Unused", ACTOR_TYPE_UNUSED_78, true },
-    { "Unused", ACTOR_TYPE_UNUSED_79, true },
-    { "The Master 1", ACTOR_TYPE_THE_MASTER_1, false },
-    { "The Master 2", ACTOR_TYPE_THE_MASTER_2, false },
-    { "The Master 3", ACTOR_TYPE_THE_MASTER_3, false },
-    { "Chan", ACTOR_TYPE_CHAN, false },
-    { "Lee", ACTOR_TYPE_LEE, false },
-    { "Lee Goombario", ACTOR_TYPE_LEE_GOOMBARIO, false },
-    { "Lee Kooper", ACTOR_TYPE_LEE_KOOPER, false },
-    { "Lee Bombette", ACTOR_TYPE_LEE_BOMBETTE, false },
-    { "Lee Parakarry", ACTOR_TYPE_LEE_PARAKARRY, false },
-    { "Lee Bow", ACTOR_TYPE_LEE_BOW, false },
-    { "Lee Watt", ACTOR_TYPE_LEE_WATT, false },
-    { "Lee Sushie", ACTOR_TYPE_LEE_SUSHIE, false },
-    { "Lee Lakilester", ACTOR_TYPE_LEE_LAKILESTER, false },
-    { "Kammy Koopa", ACTOR_TYPE_KAMMY_KOOPA, false },
-    { "Jr. Troopa 1", ACTOR_TYPE_JR_TROOPA_1, false },
-    { "Jr. Troopa 2", ACTOR_TYPE_JR_TROOPA_2, false },
-    { "Jr. Troopa 3", ACTOR_TYPE_JR_TROOPA_3, false },
-    { "Jr. Troopa 4", ACTOR_TYPE_JR_TROOPA_4, false },
-    { "Jr. Troopa 5", ACTOR_TYPE_JR_TROOPA_5, false },
-    { "Jr. Troopa 6", ACTOR_TYPE_JR_TROOPA_6, false },
-    { "Jr. Troopa Dup 1", ACTOR_TYPE_JR_TROOPA_DUP1, true },
-    { "Jr. Troopa Dup 2", ACTOR_TYPE_JR_TROOPA_DUP2, true },
-    { "Blue Goomba Boss", ACTOR_TYPE_BLUE_GOOMBA_BOSS, false },
-    { "Red Goomba Boss", ACTOR_TYPE_RED_GOOMBA_BOSS, false },
-    { "Goomba King", ACTOR_TYPE_GOOMBA_KING, false },
-    { "Goomnut Tree", ACTOR_TYPE_GOOMNUT_TREE, false },
-    { "Goombario Tutor 1", ACTOR_TYPE_GOOMBARIO_TUTOR1, false },
-    { "Magikoopa Boss", ACTOR_TYPE_MAGIKOOPA_BOSS, false },
-    { "Flying Magikoopa Boss", ACTOR_TYPE_FLYING_MAGIKOOPA_BOSS, false },
-    { "Magikoopa Dup 1", ACTOR_TYPE_MAGIKOOPA_DUP1, true },
-    { "Magikoopa Dup 2", ACTOR_TYPE_MAGIKOOPA_DUP2, true },
-    { "Fake Bowser", ACTOR_TYPE_FAKE_BOWSER, false },
-    { "Koopa Bros", ACTOR_TYPE_KOOPA_BROS, false },
-    { "Green Ninjakoopa", ACTOR_TYPE_GREEN_NINJAKOOPA, false },
-    { "Red Ninjakoopa", ACTOR_TYPE_RED_NINJAKOOPA, false },
-    { "Black Ninjakoopa", ACTOR_TYPE_BLACK_NINJAKOOPA, false },
-    { "Yellow Ninjakoopa", ACTOR_TYPE_YELLOW_NINJAKOOPA, false },
-    { "Eldstar", ACTOR_TYPE_ELDSTAR, false },
-    { "Buzzar", ACTOR_TYPE_BUZZAR, false },
-    { "Tutankoopa", ACTOR_TYPE_TUTANKOOPA, false },
-    { "Chomp", ACTOR_TYPE_CHOMP, false },
-    { "Tubba Blubba Invincible", ACTOR_TYPE_TUBBA_BLUBBA_INVINCIBLE, false },
-    { "Tubba Blubba", ACTOR_TYPE_TUBBA_BLUBBA, false },
-    { "Tubba Heart", ACTOR_TYPE_TUBBA_HEART, false },
-    { "Stilt Guy", ACTOR_TYPE_STILT_GUY, false },
-    { "Shy Stack", ACTOR_TYPE_SHY_STACK, false },
-    { "Shy Squad", ACTOR_TYPE_SHY_SQUAD, false },
-    { "General Guy", ACTOR_TYPE_GENERAL_GUY, false },
-    { "Toy Tank", ACTOR_TYPE_TOY_TANK, false },
-    { "Light Bulb", ACTOR_TYPE_LIGHT_BULB, false },
-    { "Signal Guy", ACTOR_TYPE_SIGNAL_GUY, false },
-    { "Shy Squad Redux", ACTOR_TYPE_SHY_SQUAD_REDUX, false },
-    { "Shy Squad Stub", ACTOR_TYPE_SHY_SQUAD_STUB, true },
-    { "Anti Guy (Toy Box)", ACTOR_TYPE_ANTI_GUY_OMO, false },
-    { "Anti Guy (Bowser's Castle)", ACTOR_TYPE_ANTI_GUY_KPA, false },
-    { "Big Lantern Ghost", ACTOR_TYPE_BIG_LANTERN_GHOST, false },
-    { "Goomba King Dup", ACTOR_TYPE_GOOMBA_KING_DUP, true },
-    { "Lava Piranha Phase 1", ACTOR_TYPE_LAVA_PIRANHA_PHASE_1, false },
-    { "Lava Piranha Phase 2", ACTOR_TYPE_LAVA_PIRANHA_PHASE_2, false },
-    { "Lava Bud Phase 1", ACTOR_TYPE_LAVA_BUD_PHASE_1, false },
-    { "Lava Bud Phase 2", ACTOR_TYPE_LAVA_BUD_PHASE_2, false },
-    { "Petit Piranha", ACTOR_TYPE_PETIT_PIRANHA, false },
-    { "Petit Piranha Bomb", ACTOR_TYPE_PETIT_PIRANHA_BOMB, false },
-    { "Kent C. Koopa", ACTOR_TYPE_KENT_C_KOOPA, false },
-    { "Huff N. Puff", ACTOR_TYPE_HUFF_N_PUFF, false },
-    { "Tuff Puff", ACTOR_TYPE_TUFF_PUFF, false },
-    { "Monstar", ACTOR_TYPE_MONSTAR, false },
-    { "Crystal King", ACTOR_TYPE_CRYSTAL_KING, false },
-    { "Crystal Clone", ACTOR_TYPE_CRYSTAL_CLONE, false },
-    { "Crystal Bit", ACTOR_TYPE_CRYSTAL_BIT, false },
-    { "Intro Bowser", ACTOR_TYPE_INTRO_BOWSER, false },
-    { "Hallway Bowser", ACTOR_TYPE_HALLWAY_BOWSER, false },
-    { "Hallway Bowser Dup", ACTOR_TYPE_HALLWAY_BOWSER_DUP, true },
-    { "Final Bowser 1", ACTOR_TYPE_FINAL_BOWSER_1, false },
-    { "Final Bowser 1 Dup", ACTOR_TYPE_FINAL_BOWSER_1_DUP, true },
-    { "Final Bowser 2", ACTOR_TYPE_FINAL_BOWSER_2, false },
-    { "Final Bowser 2 Dup", ACTOR_TYPE_FINAL_BOWSER_2_DUP, true },
-    { "Blooper", ACTOR_TYPE_BLOOPER, false },
-    { "Electro Blooper 1", ACTOR_TYPE_ELECTRO_BLOOPER1, false },
-    { "Electro Blooper 2", ACTOR_TYPE_ELECTRO_BLOOPER2, false },
-    { "Super Blooper 1", ACTOR_TYPE_SUPER_BLOOPER1, false },
-    { "Super Blooper 2", ACTOR_TYPE_SUPER_BLOOPER2, false },
-    { "Blooper Baby", ACTOR_TYPE_BLOOPER_BABY, false },
-    { "Lakilester Dup", ACTOR_TYPE_LAKILESTER_DUP, true },
-    { "Slot Machine Start", ACTOR_TYPE_SLOT_MACHINE_START, false },
-    { "Slot Machine Stop", ACTOR_TYPE_SLOT_MACHINE_STOP, false },
-    { "Whacka", ACTOR_TYPE_WHACKA, false },
-    { "Slot Machine Start Dup 1", ACTOR_TYPE_SLOT_MACHINE_START_DUP1, true },
-    { "Slot Machine Start Dup 2", ACTOR_TYPE_SLOT_MACHINE_START_DUP2, true },
-    { "Slot Machine Start Dup 3", ACTOR_TYPE_SLOT_MACHINE_START_DUP3, true },
 };
 
 void SaveEditor_PushImageButtonStyle() {
@@ -553,6 +348,147 @@ void AddRemove_KeyItem(int itemId, bool currentState) {
                 break;
             }
         }
+    }
+}
+
+// Before Parakarry joins, the letters he lost may have been handed back to him rather than delivered.
+bool ParakarryHoldsLostLetters() {
+    return get_global_byte(EVT_INDEX_OF_GAME_BYTE(GB_StoryProgress)) < STORY_CH2_PARAKARRY_JOINED_PARTY;
+}
+
+LetterState GetLetterState(const LetterData& letter) {
+    if (PlayerHasKeyItem(letter.itemID)) {
+        return LETTER_IN_ITEMS;
+    }
+    if (!get_global_flag(letter.obtainedFlag)) {
+        return LETTER_NOT_FOUND;
+    }
+    if (letter.returnedToParakarry && ParakarryHoldsLostLetters()) {
+        return LETTER_WITH_PARAKARRY;
+    }
+    return LETTER_DELIVERED;
+}
+
+void SetLetterState(const LetterData& letter, LetterState state) {
+    bool held = PlayerHasKeyItem(letter.itemID);
+
+    if (state == LETTER_IN_ITEMS) {
+        if (!held && CountUsedKeyItemSlots() >= MAX_KEY_ITEM_SIZE) {
+            return;
+        }
+        set_global_flag(letter.obtainedFlag);
+        if (!held) {
+            AddRemove_KeyItem(letter.itemID, false);
+        }
+        return;
+    }
+
+    if (held) {
+        AddRemove_KeyItem(letter.itemID, true);
+    }
+    if (state == LETTER_NOT_FOUND) {
+        clear_global_flag(letter.obtainedFlag);
+    } else {
+        set_global_flag(letter.obtainedFlag);
+    }
+}
+
+// 0 = not started, N = holding chain letter N - 1, size + 1 = finished, -1 = first letter is with Parakarry.
+int32_t GetChainLetterProgress() {
+    for (int i = (int) chainLetterList.size() - 1; i >= 0; i--) {
+        if (PlayerHasKeyItem(chainLetterList[i].itemID)) {
+            return i + 1;
+        }
+    }
+    if (!get_global_flag(chainLetterList[0].obtainedFlag)) {
+        return 0;
+    }
+    if (ParakarryHoldsLostLetters()) {
+        return -1;
+    }
+    return (int32_t) chainLetterList.size() + 1;
+}
+
+void SetChainLetterProgress(int32_t progress) {
+    for (auto& letter : chainLetterList) {
+        if (PlayerHasKeyItem(letter.itemID)) {
+            AddRemove_KeyItem(letter.itemID, true);
+        }
+    }
+    if (progress <= 0) {
+        clear_global_flag(chainLetterList[0].obtainedFlag);
+        return;
+    }
+    set_global_flag(chainLetterList[0].obtainedFlag);
+    if (progress <= (int32_t) chainLetterList.size()) {
+        AddRemove_KeyItem(chainLetterList[progress - 1].itemID, false);
+    }
+}
+
+LetterState GetChainLetterState(int32_t index) {
+    int32_t progress = GetChainLetterProgress();
+
+    if (progress < 0) {
+        return index == 0 ? LETTER_WITH_PARAKARRY : LETTER_NOT_FOUND;
+    }
+    if (progress <= index) {
+        return LETTER_NOT_FOUND;
+    }
+    if (progress == index + 1) {
+        return LETTER_IN_ITEMS;
+    }
+    return LETTER_DELIVERED;
+}
+
+void SetChainLetterState(int32_t index, LetterState state) {
+    switch (state) {
+        case LETTER_NOT_FOUND:
+            SetChainLetterProgress(index);
+            break;
+        case LETTER_DELIVERED:
+            SetChainLetterProgress(index + 2);
+            break;
+        default:
+            SetChainLetterProgress(index + 1);
+            break;
+    }
+}
+
+LetterState NextLetterState(LetterState state) {
+    switch (state) {
+        case LETTER_NOT_FOUND:
+        case LETTER_WITH_PARAKARRY:
+            return LETTER_IN_ITEMS;
+        case LETTER_IN_ITEMS:
+            return LETTER_DELIVERED;
+        default:
+            return LETTER_NOT_FOUND;
+    }
+}
+
+const char* LetterStateName(LetterState state) {
+    switch (state) {
+        case LETTER_WITH_PARAKARRY:
+            return "With Parakarry";
+        case LETTER_IN_ITEMS:
+            return "In Items";
+        case LETTER_DELIVERED:
+            return "Delivered";
+        default:
+            return "Not Found";
+    }
+}
+
+ImVec4 LetterStateColor(LetterState state) {
+    switch (state) {
+        case LETTER_WITH_PARAKARRY:
+            return ImVec4(0.45f, 0.7f, 1.0f, 1.0f);
+        case LETTER_IN_ITEMS:
+            return ImVec4(0.95f, 0.85f, 0.3f, 1.0f);
+        case LETTER_DELIVERED:
+            return ImVec4(0.35f, 0.85f, 0.35f, 1.0f);
+        default:
+            return ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
     }
 }
 
@@ -742,7 +678,10 @@ void SaveEditor_DrawPlayerMenu() {
                 ImGui::Image(gui->GetTextureByName(ui_stat_heart_png), statImageSize);
                 ImGui::TableNextColumn();
                 int32_t curHealth = gPlayerData.curHP;
-                int32_t maxHealth = gPlayerData.curMaxHP;
+                int32_t maxHealth = gPlayerData.hardMaxHP;
+                std::string maxHealthFormat = gPlayerData.curMaxHP != gPlayerData.hardMaxHP
+                    ? fmt::format("Max HP: %i ({} with badges)", gPlayerData.curMaxHP)
+                    : "Max HP: %i";
                 if (UIWidgets::SliderInt(
                         "##pCurHP", &curHealth,
                         UIWidgets::IntSliderOptions()
@@ -760,18 +699,14 @@ void SaveEditor_DrawPlayerMenu() {
                         UIWidgets::IntSliderOptions()
                             .Color(WIDGET_COLOR)
                             .LabelPosition(UIWidgets::LabelPositions::None)
-                            .Format("Max HP: %i")
+                            .Format(maxHealthFormat.c_str())
                             .Step(5)
                             .Min(5)
                             .Max(50)
                     ))
                 {
-                    {
-                        int32_t bonus = gPlayerData.curMaxHP - gPlayerData.hardMaxHP;
-                        if (bonus < 0) bonus = 0;
-                        gPlayerData.hardMaxHP = (maxHealth - bonus) < 1 ? 1 : (maxHealth - bonus);
-                        gPlayerData.curMaxHP = maxHealth;
-                    }
+                    gPlayerData.hardMaxHP = maxHealth;
+                    enforce_hpfp_limits();
                 };
 
                 // Flower Points
@@ -779,7 +714,10 @@ void SaveEditor_DrawPlayerMenu() {
                 ImGui::Image(gui->GetTextureByName(ui_stat_flower_png), statImageSize);
                 ImGui::TableNextColumn();
                 int32_t curFlower = gPlayerData.curFP;
-                int32_t maxFlower = gPlayerData.curMaxFP;
+                int32_t maxFlower = gPlayerData.hardMaxFP;
+                std::string maxFlowerFormat = gPlayerData.curMaxFP != gPlayerData.hardMaxFP
+                    ? fmt::format("Max FP: %i ({} with badges)", gPlayerData.curMaxFP)
+                    : "Max FP: %i";
                 if (UIWidgets::SliderInt(
                         "##pCurFP", &curFlower,
                         UIWidgets::IntSliderOptions()
@@ -797,18 +735,14 @@ void SaveEditor_DrawPlayerMenu() {
                         UIWidgets::IntSliderOptions()
                             .Color(WIDGET_COLOR)
                             .LabelPosition(UIWidgets::LabelPositions::None)
-                            .Format("Max FP: %i")
+                            .Format(maxFlowerFormat.c_str())
                             .Step(5)
                             .Min(5)
                             .Max(50)
                     ))
                 {
-                    {
-                        int32_t bonus = gPlayerData.curMaxFP - gPlayerData.hardMaxFP;
-                        if (bonus < 0) bonus = 0;
-                        gPlayerData.hardMaxFP = (maxFlower - bonus) < 1 ? 1 : (maxFlower - bonus);
-                        gPlayerData.curMaxFP = maxFlower;
-                    }
+                    gPlayerData.hardMaxFP = maxFlower;
+                    enforce_hpfp_limits();
                 };
 
                 // Badge Points
@@ -1098,6 +1032,62 @@ void SaveEditor_DrawPartyMenu() {
     }
 }
 
+void SaveEditor_SetupLetterTable(ImVec2 padding, ImVec2 imageSize) {
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, padding);
+    ImGui::TableSetupColumn("icon1", ImGuiTableColumnFlags_WidthFixed, imageSize.x);
+    ImGui::TableSetupColumn("name1", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("icon2", ImGuiTableColumnFlags_WidthFixed, imageSize.x);
+    ImGui::TableSetupColumn("name2", ImGuiTableColumnFlags_WidthStretch);
+    SaveEditor_PushImageButtonStyle();
+}
+
+bool SaveEditor_DrawLetterCell(
+    const std::shared_ptr<Fast::Fast3dGui>& gui, const LetterData& letter, LetterState state, ImVec2 imageSize
+) {
+    const char* rasterPath = reinterpret_cast<const char*>(gItemIconRasterOffsets[letter.itemID]);
+    ImVec4 stateColor = LetterStateColor(state);
+    bool found = state != LETTER_NOT_FOUND;
+
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    ImGuiID cardID = ImGui::GetID("card");
+    bool wasHovered = storage->GetBool(cardID);
+    float highlightAlpha = (found ? 0.15f : 0.0f) + (wasHovered ? 0.12f : 0.0f);
+    ImU32 highlight = ImGui::GetColorU32(ImVec4(stateColor.x, stateColor.y, stateColor.z, highlightAlpha));
+
+    ImGui::TableNextColumn();
+    if (highlightAlpha > 0.0f) {
+        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, highlight);
+    }
+    bool clicked = ImGui::ImageButton(
+        letter.name, gui->GetTextureByName(rasterPath), imageSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0),
+        ImVec4(1, 1, 1, found ? 1.0f : 0.35f)
+    );
+    bool hovered = ImGui::IsItemHovered();
+
+    ImGui::TableNextColumn();
+    if (highlightAlpha > 0.0f) {
+        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, highlight);
+    }
+    ImVec2 textCellPos = ImGui::GetCursorPos();
+    float textCellWidth = std::max<float>(ImGui::GetContentRegionAvail().x, 1.0f);
+    clicked |= ImGui::InvisibleButton("##card", ImVec2(textCellWidth, imageSize.y));
+    hovered |= ImGui::IsItemHovered();
+
+    float textHeight = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetTextLineHeight();
+    ImGui::SetCursorPos(
+        ImVec2(textCellPos.x, textCellPos.y + std::max<float>(0.0f, (imageSize.y - textHeight) * 0.5f))
+    );
+    ImGui::Text("%s", letter.name);
+    ImGui::TextColored(stateColor, "%s", LetterStateName(state));
+
+    if (hovered) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        ImGui::SetTooltip("Click to mark as %s", LetterStateName(NextLetterState(state)));
+    }
+    storage->SetBool(cardID, hovered);
+    return clicked;
+}
+
 void SaveEditor_DrawLettersMenu() {
     auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui());
     ImVec2 padding = ImGui::GetStyle().CellPadding;
@@ -1105,67 +1095,97 @@ void SaveEditor_DrawLettersMenu() {
     padding.y += 4.0f;
 
     if (ImGui::BeginChild("LettersChild")) {
-        int32_t heldLetters = 0;
+        int32_t inItems = 0;
+        int32_t delivered = 0;
         for (auto& letter : letterList) {
-            if (PlayerHasKeyItem(letter.itemID)) {
-                heldLetters++;
-            }
+            LetterState state = GetLetterState(letter);
+            inItems += state == LETTER_IN_ITEMS;
+            delivered += state == LETTER_DELIVERED;
         }
-        int32_t usedSlots = CountUsedKeyItemSlots();
+        for (int i = 0; i < (int) chainLetterList.size(); i++) {
+            LetterState state = GetChainLetterState(i);
+            inItems += state == LETTER_IN_ITEMS;
+            delivered += state == LETTER_DELIVERED;
+        }
+        int32_t totalLetters = (int32_t) (letterList.size() + chainLetterList.size());
 
         ImGui::Text(
-            "Held: %d / %d     Key item slots used: %d / %d", heldLetters, (int32_t) letterList.size(), usedSlots,
-            MAX_KEY_ITEM_SIZE
+            "Delivered: %d / %d     In Items: %d     Key item slots used: %d / %d", delivered, totalLetters, inItems,
+            CountUsedKeyItemSlots(), MAX_KEY_ITEM_SIZE
         );
+        ImGui::TextWrapped("Click a letter to cycle it between Not Found, In Items and Delivered.");
 
-        if (UIWidgets::Button("Give All", UIWidgets::ButtonOptions().Color(WIDGET_COLOR))) {
+        if (UIWidgets::Button("Collect All", UIWidgets::ButtonOptions().Color(WIDGET_COLOR))) {
             for (auto& letter : letterList) {
-                if (!PlayerHasKeyItem(letter.itemID) && CountUsedKeyItemSlots() < MAX_KEY_ITEM_SIZE) {
-                    AddRemove_KeyItem(letter.itemID, false);
+                LetterState state = GetLetterState(letter);
+                if (state == LETTER_NOT_FOUND || state == LETTER_WITH_PARAKARRY) {
+                    SetLetterState(letter, LETTER_IN_ITEMS);
                 }
+            }
+            if (GetChainLetterProgress() <= 0) {
+                SetChainLetterProgress(1);
             }
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Letters share the 32 key item slots, so this stops once they are full.");
+            ImGui::SetTooltip(
+                "Puts every letter that hasn't been delivered yet in key items.\n"
+                "Letters share the 32 key item slots, so this stops once they are full."
+            );
         }
         ImGui::SameLine();
-        if (UIWidgets::Button("Remove All", UIWidgets::ButtonOptions().Color(WIDGET_COLOR))) {
+        if (UIWidgets::Button("Deliver All", UIWidgets::ButtonOptions().Color(WIDGET_COLOR))) {
             for (auto& letter : letterList) {
-                if (PlayerHasKeyItem(letter.itemID)) {
-                    AddRemove_KeyItem(letter.itemID, true);
-                }
+                SetLetterState(letter, LETTER_DELIVERED);
             }
+            SetChainLetterProgress((int32_t) chainLetterList.size() + 1);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Marks every letter delivered. Delivery rewards are not granted.");
+        }
+        ImGui::SameLine();
+        if (UIWidgets::Button("Clear All", UIWidgets::ButtonOptions().Color(WIDGET_COLOR))) {
+            for (auto& letter : letterList) {
+                SetLetterState(letter, LETTER_NOT_FOUND);
+            }
+            SetChainLetterProgress(0);
         }
 
         ImGui::SeparatorText("Letters");
         if (ImGui::BeginTable("LettersTable", 4, ImGuiTableFlags_SizingStretchSame)) {
-            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, padding);
-            ImGui::TableSetupColumn("icon1", ImGuiTableColumnFlags_WidthFixed, statImageSize.x);
-            ImGui::TableSetupColumn("name1", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("icon2", ImGuiTableColumnFlags_WidthFixed, statImageSize.x);
-            ImGui::TableSetupColumn("name2", ImGuiTableColumnFlags_WidthStretch);
-
-            SaveEditor_PushImageButtonStyle();
+            SaveEditor_SetupLetterTable(padding, statImageSize);
             for (int i = 0; i < (int) letterList.size(); i++) {
                 const LetterData& letter = letterList[i];
-                const char* rasterPath = reinterpret_cast<const char*>(gItemIconRasterOffsets[letter.itemID]);
-                bool hasLetter = PlayerHasKeyItem(letter.itemID);
+                LetterState state = GetLetterState(letter);
 
                 ImGui::PushID(i);
-                ImGui::TableNextColumn();
-                if (ImGui::ImageButton(
-                        letter.name, gui->GetTextureByName(rasterPath), statImageSize, ImVec2(0, 0), ImVec2(1, 1),
-                        ImVec4(0, 0, 0, 0), ImVec4(1, 1, 1, hasLetter ? 1.0f : 0.5f)
-                    ))
-                {
-                    AddRemove_KeyItem(letter.itemID, hasLetter);
+                if (SaveEditor_DrawLetterCell(gui, letter, state, statImageSize)) {
+                    SetLetterState(letter, NextLetterState(state));
                 }
-                ImGui::TableNextColumn();
-                TableCellCenteredText(letter.name, statImageSize);
                 ImGui::PopID();
             }
             SaveEditor_PopImageButtonStyle();
+            ImGui::PopStyleVar(1);
+            ImGui::EndTable();
+        }
 
+        ImGui::SeparatorText("Chain Letters");
+        ImGui::TextWrapped(
+            "Delivering a chain letter hands over the next one, so marking a letter here "
+            "also updates the rest of the chain."
+        );
+        if (ImGui::BeginTable("ChainLettersTable", 4, ImGuiTableFlags_SizingStretchSame)) {
+            SaveEditor_SetupLetterTable(padding, statImageSize);
+            for (int i = 0; i < (int) chainLetterList.size(); i++) {
+                const LetterData& letter = chainLetterList[i];
+                LetterState state = GetChainLetterState(i);
+
+                ImGui::PushID(i);
+                if (SaveEditor_DrawLetterCell(gui, letter, state, statImageSize)) {
+                    SetChainLetterState(i, NextLetterState(state));
+                }
+                ImGui::PopID();
+            }
+            SaveEditor_PopImageButtonStyle();
             ImGui::PopStyleVar(1);
             ImGui::EndTable();
         }
@@ -1339,7 +1359,7 @@ void SaveEditor_DrawTattlesMenu() {
     if (ImGui::BeginChild("TattlesChild")) {
         int32_t listed = 0;
         int32_t known = 0;
-        for (auto& tattle : tattleList) {
+        for (auto& tattle : gActorTypeNames) {
             if (hideUnusedTattles && tattle.isUnused) {
                 continue;
             }
@@ -1360,7 +1380,7 @@ void SaveEditor_DrawTattlesMenu() {
         UIWidgets::Checkbox("Hide unused", &hideUnusedTattles, UIWidgets::CheckboxOptions().Color(WIDGET_COLOR));
 
         if (UIWidgets::Button("Enable All", UIWidgets::ButtonOptions().Color(WIDGET_COLOR))) {
-            for (auto& tattle : tattleList) {
+            for (auto& tattle : gActorTypeNames) {
                 if ((hideUnusedTattles && tattle.isUnused) || !ContainsIgnoreCase(tattle.name, tattleFilter)) {
                     continue;
                 }
@@ -1372,7 +1392,7 @@ void SaveEditor_DrawTattlesMenu() {
         }
         ImGui::SameLine();
         if (UIWidgets::Button("Clear All", UIWidgets::ButtonOptions().Color(WIDGET_COLOR))) {
-            for (auto& tattle : tattleList) {
+            for (auto& tattle : gActorTypeNames) {
                 if ((hideUnusedTattles && tattle.isUnused) || !ContainsIgnoreCase(tattle.name, tattleFilter)) {
                     continue;
                 }
@@ -1386,8 +1406,8 @@ void SaveEditor_DrawTattlesMenu() {
         ImGui::SeparatorText("Tattle Log");
         if (ImGui::BeginTable("TattleTable", 2, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, padding);
-            for (int i = 0; i < (int) tattleList.size(); i++) {
-                const TattleData& tattle = tattleList[i];
+            for (int i = 0; i < (int) gActorTypeNames.size(); i++) {
+                const ActorTypeName& tattle = gActorTypeNames[i];
 
                 if (hideUnusedTattles && tattle.isUnused) {
                     continue;
