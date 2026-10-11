@@ -8,14 +8,8 @@
 
 #include "Engine.h"
 #include "port/DevTools/ThreadWatchdog.h"
-#include "port/DevTools/FrameStats.h"
-extern "C" void FrameEvents_LogBuild(void);
-extern "C" uint32_t Graphics_TickCount(void);
-extern "C" uint32_t Graphics_BackloggedTicks(void);
-extern "C" uint64_t OS_ViLastPresentNs(void);
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/os/OS.h"
-#include <spdlog/spdlog.h>
 
 #ifdef __EMSCRIPTEN__
 #include <SDL2/SDL.h>
@@ -69,31 +63,17 @@ InterpPair TakePair(const void* nuTask) {
     return pair;
 }
 
-// Diagnostics: when no frame reaches the renderer for a while, log where the pipeline is stuck.
-void LogPipelineState(const char* tag, double gapMs, uint32_t ticks, uint32_t backlogged) {
-    NusysWatchdogState st {};
-    Graphics_GetWatchdogState(&st);
-    SPDLOG_INFO("[frame-stats] {} gap={:.0f}ms ticks={} backlogged={} spool={} retraceQ={} rspQ={} rdpQ={} "
-                "gfxReqQ={} gfxMesgQ={} taskMgrQ={} area={} map={}",
-                tag, gapMs, ticks, backlogged, st.taskSpool, st.retraceQ, st.rspQ, st.rdpQ, st.gfxRequestQ,
-                st.gfxMesgQ, st.taskMgrQ, st.areaID, st.mapID);
-}
-
-uint32_t sRcpTasks = 0, sRcpSwapTasks = 0, sRcpStashed = 0;
-
 int ServiceRcp() {
     OSTask* task = OS_SpTakePendingTask();
     if (task == nullptr) {
         return 0;
     }
-    sRcpTasks++;
     const void* nuTask = Graphics_TaskFromList(task);
     const uint32_t flags = Graphics_TaskFlags(nuTask);
     InterpPair pair = TakePair(nuTask);
     Gfx* list = (Gfx*) task->t.data_ptr;
 
     if (flags & NU_SC_SWAPBUFFER) {
-        sRcpSwapTasks++;
         FrameInterpolation_BeginRenderPass(pair.prev, pair.curr, pair.should);
         Graphics_DrawFrame(sPendingNoSwap, list, pair.capturePrevFrame);
         FrameInterpolation_ReleasePair(pair.prev, pair.curr);
@@ -105,7 +85,6 @@ int ServiceRcp() {
         if (sPendingNoSwap != nullptr) {
             FrameInterpolation_ReleasePair(sPendingNoSwapPair.prev, sPendingNoSwapPair.curr);
         }
-        sRcpStashed++;
         sPendingNoSwap = list;
         sPendingNoSwapPair = pair;
     }
@@ -152,7 +131,6 @@ extern "C"
 
     Graphics_EnableNusysThreads();
     GameEngine::Create(argc, argv);
-    FrameEvents_LogBuild();
 
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
 
@@ -162,62 +140,18 @@ extern "C"
 
     Graphics_Start();
 
-    uint32_t fsGapTicks = Graphics_TickCount(), fsGapBacklog = Graphics_BackloggedTicks();
-    uint32_t fsGapTasks = 0, fsGapSwaps = 0, fsGapStash = 0;
-    bool fsGapReported = false;
-
     while (wnd->IsRunning()) {
         ThreadWatchdog_Beat(WATCHDOG_MAIN_LOOP);
-        const uint64_t fsT0 = FrameStats::NowNs();
         GameEngine::Instance->StartFrame();
-        const uint64_t fsT1 = FrameStats::NowNs();
         OS_SiService();
-        const uint64_t fsT2 = FrameStats::NowNs();
         GameEngine::DrainRenderService();
-        const uint64_t fsT3 = FrameStats::NowNs();
-        FrameStats::Record(FrameStats::kStart, fsT1 - fsT0);
-        FrameStats::Record(FrameStats::kSi, fsT2 - fsT1);
-        FrameStats::Record(FrameStats::kDrain, fsT3 - fsT2);
-        const bool fsRendered = ServiceRcp() != 0;
-        if (fsRendered) {
-            FrameStats::Record(FrameStats::kRender, FrameStats::NowNs() - fsT3);
-        }
-        {
-            const uint64_t fsNow = FrameStats::NowNs();
-            const uint64_t lastPresent = OS_ViLastPresentNs();
-            const double gapMs = lastPresent != 0 && fsNow > lastPresent ? (fsNow - lastPresent) / 1e6 : 0.0;
-            if (!fsGapReported && gapMs > 120.0) {
-                fsGapReported = true;
-                fsGapTicks = Graphics_TickCount();
-                fsGapBacklog = Graphics_BackloggedTicks();
-                fsGapTasks = sRcpTasks;
-                fsGapSwaps = sRcpSwapTasks;
-                fsGapStash = sRcpStashed;
-                LogPipelineState("present gap started", gapMs, 0, 0);
-            } else if (fsGapReported && gapMs < 60.0) {
-                fsGapReported = false;
-                SPDLOG_INFO("[frame-stats] present resumed: during gap ticks={} backlogged={} rcpTasks={} swapTasks={} "
-                            "stashed={}",
-                            Graphics_TickCount() - fsGapTicks, Graphics_BackloggedTicks() - fsGapBacklog,
-                            sRcpTasks - fsGapTasks, sRcpSwapTasks - fsGapSwaps, sRcpStashed - fsGapStash);
-                LogPipelineState("present resumed state", 0, 0, 0);
-            }
-        }
-        {
-            char fsLine[640];
-            if (FrameStats::Poll(fsLine, sizeof(fsLine))) {
-                SPDLOG_INFO("{}", fsLine);
-            }
-        }
-        if (!fsRendered) {
+        if (!ServiceRcp()) {
             if (ThreadWatchdog_IsStalled(WATCHDOG_GAME_TICK)) {
                 GameEngine::Instance->RenderGuiFrame();
                 SDL_Delay(16);
                 continue;
             }
-            const uint64_t fsI0 = FrameStats::NowNs();
             SDL_Delay(1);
-            FrameStats::Record(FrameStats::kIdle, FrameStats::NowNs() - fsI0);
         }
 #ifdef __EMSCRIPTEN__
         // A tab can close without warning, so sync periodically, not just on exit.

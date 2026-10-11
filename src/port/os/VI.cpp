@@ -7,7 +7,6 @@
 #include <thread>
 
 #include "port/DevTools/ThreadWatchdog.h"
-#include "port/DevTools/FrameStats.h"
 
 extern "C" {
 #include "libultraship/libultra/types.h"
@@ -37,8 +36,6 @@ std::atomic<void*> sCurrentFramebuffer { nullptr };
 std::atomic<bool> sBlack { false };
 
 void Retrace() {
-    static std::atomic<uint64_t> sLastRetraceNs { 0 };
-    FrameStats::Tick(FrameStats::kRetrace, sLastRetraceNs);
     sCurrentFramebuffer.store(sNextFramebuffer.load(std::memory_order_acquire), std::memory_order_release);
     ThreadWatchdog_Beat(WATCHDOG_VI_TICKER);
     OS_SendEventMesg(OS_EVENT_VI);
@@ -122,14 +119,7 @@ extern "C" void OS_StopViTicker(void) {
     }
 }
 
-static std::atomic<uint64_t> sLastPresentNsG { 0 };
-extern "C" uint64_t OS_ViLastPresentNs(void) {
-    return sLastPresentNsG.load(std::memory_order_relaxed);
-}
-
 extern "C" void OS_ViNotifyPresent(void) {
-    auto& sLastPresentNs = sLastPresentNsG;
-    FrameStats::Tick(FrameStats::kPresent, sLastPresentNs);
     const auto now = Clock::now();
     {
         std::lock_guard<std::mutex> lock(sPresentMutex);
