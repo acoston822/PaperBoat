@@ -849,9 +849,12 @@ void TouchControlsOverlay::Draw() {
     // Fully gone (not just faint) once the fade-out has finished.
     if (sStickFade > 0.001f) {
         // Perfectly round gate ring; the thumb dot is a small translucent circle in the menu theme color.
-        const float nubR = sState.nubRadius * 0.33f;
-        const float gateR = sState.stickTravel + nubR;
-        drawList->AddCircle(base, gateR, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha), 0, stroke * 1.2f);
+        const float nubR = sState.nubRadius * 0.3366f;
+        // Ring about as thick as the button outlines (those are 0.26 of the radius: 0.39u on A, 0.33u on B/Z),
+        // just a touch thinner. Its inner edge sits where the thumb dot stops at full deflection.
+        const float ringT = 0.3f * u;
+        const float gateR = sState.stickTravel + nubR + ringT * 0.5f;
+        drawList->AddCircle(base, gateR, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha), 0, ringT);
         const ImU32 themeCol = rgb(ImGui::ColorConvertFloat4ToU32(
             UIWidgets::ColorValues.at(PaperboatGui::GetMenuThemeColor())
         ));

@@ -317,6 +317,12 @@ static void DrawModManager() {
                         from, std::filesystem::path(modsPath) / from.filename(),
                         std::filesystem::copy_options::overwrite_existing, ec
                     );
+                    SPDLOG_INFO(
+                        "[mods] Add Files: {} -> {} ({} bytes copied){}", source,
+                        (std::filesystem::path(modsPath) / from.filename()).generic_string(),
+                        ec ? 0 : (long long) std::filesystem::file_size(std::filesystem::path(modsPath) / from.filename()),
+                        ec ? (" ERROR: " + ec.message()) : std::string()
+                    );
                     ec ? skipped++ : added++;
                 } else {
                     skipped++;
