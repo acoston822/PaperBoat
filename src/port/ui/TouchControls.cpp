@@ -849,7 +849,8 @@ void TouchControlsOverlay::Draw() {
     // Fully gone (not just faint) once the fade-out has finished.
     if (sStickFade > 0.001f) {
         // Perfectly round gate ring; the thumb dot is a small translucent circle in the menu theme color.
-        const float nubR = sState.nubRadius * 0.3366f;
+        // The Start button's radius is 0.9u; the thumb dot is 1% smaller than that.
+        const float nubR = 0.9f * u * 0.99f;
         // Ring about as thick as the button outlines (those are 0.26 of the radius: 0.39u on A, 0.33u on B/Z),
         // just a touch thinner. Its inner edge sits where the thumb dot stops at full deflection.
         const float ringT = 0.3f * u;
