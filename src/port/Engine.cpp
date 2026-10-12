@@ -79,13 +79,14 @@
 using json = nlohmann::json;
 
 // Small/Normal/Large/X-Large, sized for touch screens (the original steps were 0.75/1.0/1.5/2.0).
-const float imguiScaleOptionToValue[4] = { 1.25f, 1.66f, 2.1f, 3.1f };
+const float imguiScaleOptionToValue[4] = { 1.5f, 1.75f, 2.1f, 2.3f };
 std::shared_ptr<Fast::Fast3dWindow> gsFast3dWindow;
 Ship::Context* gShipContext = nullptr;
 const uint32_t defaultImGuiScale = 1;
-// First-launch boxes (welcome, ROM found, unsupported ROM) are 2.5x on iOS, where they are read on a touch screen.
+// First-launch boxes (welcome, ROM found, unsupported ROM, run prompt, extraction progress) are 1.75x on iOS, where
+// they are read on a touch screen.
 #if defined(__IOS__)
-constexpr float kFirstRunPopupScale = 2.5f;
+constexpr float kFirstRunPopupScale = 1.75f;
 #else
 constexpr float kFirstRunPopupScale = 1.0f;
 #endif
@@ -744,7 +745,8 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                             gsFast3dWindow = nullptr;
                             context = nullptr;
                             exit(0);
-                        }
+                        },
+                        kFirstRunPopupScale
                     );
                     break;
                 }
@@ -842,7 +844,13 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
         }
         if (extracting) {
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 8.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * kFirstRunPopupScale, 8.0f * kFirstRunPopupScale));
+            ImGui::PushStyleVar(
+                ImGuiStyleVar_WindowPadding, ImVec2(
+                                                 ImGui::GetStyle().WindowPadding.x * kFirstRunPopupScale,
+                                                 ImGui::GetStyle().WindowPadding.y * kFirstRunPopupScale
+                                             )
+            );
             auto color = UIWidgets::ColorValues.at(THEME_COLOR);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(color.x, color.y, color.z, 0.6f));
             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(color.x, color.y, color.z, 1.0f));
@@ -853,6 +861,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                         | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings
                 ))
             {
+                ImGui::SetWindowFontScale(kFirstRunPopupScale);
                 int phase = GameExtractor::sPhase;
                 float progress = 0.0f;
                 if (phase == 3) {
@@ -881,11 +890,13 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                 } else {
                     overlay = "Starting up...";
                 }
-                ImGui::ProgressBar(progress / 100.0f, ImVec2(600.0f, 50.0f), overlay.c_str());
+                ImGui::ProgressBar(
+                    progress / 100.0f, ImVec2(600.0f * kFirstRunPopupScale, 50.0f * kFirstRunPopupScale), overlay.c_str()
+                );
                 ImGui::EndPopup();
             }
             ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar(2);
+            ImGui::PopStyleVar(3);
         }
         gui->EndDraw();
         wnd->EndFrame();
