@@ -78,8 +78,8 @@
 
 using json = nlohmann::json;
 
-// Small/Normal/Large/X-Large: the original 0.75/1.0/1.5/2.0 steps, each 60% bigger for touch screens.
-const float imguiScaleOptionToValue[4] = { 1.2f, 1.6f, 2.4f, 3.2f };
+// Small/Normal/Large/X-Large: the original 0.75/1.0/1.5/2.0 steps, each about 66% bigger for touch screens.
+const float imguiScaleOptionToValue[4] = { 1.25f, 1.66f, 2.5f, 3.33f };
 std::shared_ptr<Fast::Fast3dWindow> gsFast3dWindow;
 Ship::Context* gShipContext = nullptr;
 const uint32_t defaultImGuiScale = 1;

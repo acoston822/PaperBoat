@@ -13,6 +13,8 @@
 
 #include "cvar_prefixes.h"
 #include "port/ios/IosHaptics.h"
+#include "PaperboatGui.hpp"
+#include "UIWidgets.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -844,31 +846,16 @@ void TouchControlsOverlay::Draw() {
         sStickFade = target > sStickFade ? std::min(target, sStickFade + step) : std::max(target, sStickFade - step);
     }
     const float baseAlpha = (sState.stickHeld ? 0.85f : 0.55f) * sStickFade;
-    ImTextureID capTex = gui->GetTextureByName("Analog-Stick");
-    ImTextureID gateTex = gui->GetTextureByName("Analog-Stick Outline");
-    // Housing/gate crop within the 327x175 frame (ring around the cap's spot).
-    const ImVec2 gateUv0(18.0f / kFrameW, 40.0f / kFrameH);
-    const ImVec2 gateUv1(116.0f / kFrameW, 138.0f / kFrameH);
-    // Sized so the cap touches the gate ring at full deflection.
-    const float gateHalf = sState.stickTravel + sState.nubRadius;
-    if (gateTex != nullptr) {
-        drawList->AddImage(
-            gateTex, ImVec2(base.x - gateHalf, base.y - gateHalf), ImVec2(base.x + gateHalf, base.y + gateHalf),
-            gateUv0, gateUv1, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha)
-        );
-    } else {
-        drawList->AddCircleFilled(base, sState.stickTravel, IM_COL32(20, 20, 26, 0) | alpha(0.22f * baseAlpha));
-        drawList->AddCircle(base, sState.stickTravel, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha), 0, stroke);
-    }
-    if (capTex != nullptr) {
-        drawList->AddImage(
-            capTex, ImVec2(nub.x - sState.nubRadius, nub.y - sState.nubRadius),
-            ImVec2(nub.x + sState.nubRadius, nub.y + sState.nubRadius), sState.stickUv0, sState.stickUv1,
-            IM_COL32(255, 255, 255, 0) | alpha(baseAlpha + 0.15f)
-        );
-    } else {
-        drawList->AddCircleFilled(nub, sState.nubRadius, IM_COL32(190, 190, 200, 0) | alpha(baseAlpha));
-        drawList->AddCircle(nub, sState.nubRadius, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha + 0.15f), 0, stroke);
+    // Fully gone (not just faint) once the fade-out has finished.
+    if (sStickFade > 0.001f) {
+        // Perfectly round gate ring; the thumb dot is a small translucent circle in the menu theme color.
+        const float nubR = sState.nubRadius * 0.33f;
+        const float gateR = sState.stickTravel + nubR;
+        drawList->AddCircle(base, gateR, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha), 0, stroke * 1.2f);
+        const ImU32 themeCol = rgb(ImGui::ColorConvertFloat4ToU32(
+            UIWidgets::ColorValues.at(PaperboatGui::GetMenuThemeColor())
+        ));
+        drawList->AddCircleFilled(nub, nubR, themeCol | alpha(0.7f * sStickFade));
     }
 
     // Layout-edit chrome: highlight the dragged widget, Done/Reset pills, hint.

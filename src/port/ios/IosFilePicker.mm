@@ -6,22 +6,26 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #include <utility>
+#include <vector>
 
 @interface PaperboatPickerDelegate : NSObject <UIDocumentPickerDelegate>
-@property(nonatomic, copy) void (^onDone)(NSString*);
+@property(nonatomic, copy) void (^onDone)(NSArray<NSString*>*);
 @end
 
 @implementation PaperboatPickerDelegate
 - (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {
     // asCopy: the file is already a private copy in the app's sandbox, so no security scope is needed.
-    NSString* path = urls.count > 0 ? urls[0].path : @"";
+    NSMutableArray<NSString*>* paths = [NSMutableArray array];
+    for (NSURL* url in urls) {
+        [paths addObject:url.path];
+    }
     if (self.onDone) {
-        self.onDone(path);
+        self.onDone(paths);
     }
 }
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController*)controller {
     if (self.onDone) {
-        self.onDone(@"");
+        self.onDone(@[]);
     }
 }
 @end
@@ -51,27 +55,39 @@ static UIViewController* TopViewController() {
 
 namespace Paperboat {
 
-void IosPickFile(std::function<void(std::string)> onPicked) {
+void IosPickFiles(bool allowMultiple, std::function<void(std::vector<std::string>)> onPicked) {
     // Held until the picker answers; the delegate is only weakly referenced by the controller.
     static PaperboatPickerDelegate* sDelegate = nil;
 
     dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController* top = TopViewController();
         if (top == nil) {
-            onPicked("");
+            onPicked({});
             return;
         }
         // Any file: N64 ROM extensions have no registered type, so filtering by type would hide them.
         UIDocumentPickerViewController* picker =
             [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeData ] asCopy:YES];
-        picker.allowsMultipleSelection = NO;
+        picker.allowsMultipleSelection = allowMultiple;
         sDelegate = [[PaperboatPickerDelegate alloc] init];
-        sDelegate.onDone = ^(NSString* path) {
+        sDelegate.onDone = ^(NSArray<NSString*>* paths) {
             sDelegate = nil;
-            onPicked(std::string(path.UTF8String ? path.UTF8String : ""));
+            std::vector<std::string> result;
+            for (NSString* path in paths) {
+                if (path.UTF8String != nullptr) {
+                    result.emplace_back(path.UTF8String);
+                }
+            }
+            onPicked(std::move(result));
         };
         picker.delegate = sDelegate;
         [top presentViewController:picker animated:YES completion:nil];
+    });
+}
+
+void IosPickFile(std::function<void(std::string)> onPicked) {
+    IosPickFiles(false, [onPicked](std::vector<std::string> paths) {
+        onPicked(paths.empty() ? std::string() : paths.front());
     });
 }
 

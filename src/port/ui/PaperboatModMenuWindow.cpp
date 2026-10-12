@@ -23,6 +23,7 @@
 #include "MenuTypes.h"
 #include "UIWidgets.hpp"
 #include "port/Engine.h"
+#include "port/ios/IosFilePicker.h"
 
 static std::vector<std::string> enabledModFiles;
 static std::vector<std::string> disabledModFiles;
@@ -297,6 +298,43 @@ static void DrawModManager() {
     if (UIWidgets::Button("Edit", editOpts)) {
         editing = true;
     }
+#if defined(__IOS__)
+    ImGui::SameLine();
+    if (UIWidgets::Button("Add Files", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline).Color(THEME_COLOR))) {
+        Paperboat::IosPickFiles(true, [](std::vector<std::string> picked) {
+            if (picked.empty()) {
+                return;
+            }
+            const std::string modsPath = Ship::Context::GetPathRelativeToAppDirectory("mods");
+            std::error_code ec;
+            std::filesystem::create_directories(modsPath, ec);
+            int added = 0;
+            int skipped = 0;
+            for (const std::string& source : picked) {
+                const std::filesystem::path from(source);
+                if (IsValidExtension(from.extension().string())) {
+                    std::filesystem::copy_file(
+                        from, std::filesystem::path(modsPath) / from.filename(),
+                        std::filesystem::copy_options::overwrite_existing, ec
+                    );
+                    ec ? skipped++ : added++;
+                } else {
+                    skipped++;
+                }
+                std::filesystem::remove(from, ec);
+            }
+            UpdateModFiles(false, false);
+            std::string msg = std::to_string(added) + " file(s) added to the mods folder.";
+            if (skipped > 0) {
+                msg += "\n" + std::to_string(skipped) + " skipped (only .o2r, .otr and .zip files work).";
+            }
+            if (added > 0) {
+                msg += "\n\nRestart PaperBoat to load them.";
+            }
+            PaperboatGui::RegisterPopup("Add Files", msg.c_str());
+        });
+    }
+#endif
     if (editing) {
         ImGui::SameLine();
         if (UIWidgets::Button("Cancel", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
