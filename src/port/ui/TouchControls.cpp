@@ -790,7 +790,16 @@ void TouchControlsOverlay::Draw() {
     // the cap (deflected position); circles are the no-texture fallback.
     const ImVec2 base = sState.stickHeld ? sState.stickAnchor : sState.stickRest;
     const ImVec2 nub = sState.stickHeld ? sState.stickPos : sState.stickRest;
-    const float baseAlpha = sState.stickHeld ? 0.85f : 0.55f;
+    // "Hide Joystick When Idle": the floating stick fades out while no finger is on it. The layout editor
+    // always shows it so it can still be repositioned.
+    static float sStickFade = 1.0f;
+    {
+        const bool hideIdle = CVarGetInteger(CVAR_TOUCH("HideStickIdle"), 0) != 0;
+        const float target = (hideIdle && !sState.stickHeld && !sState.editMode) ? 0.0f : 1.0f;
+        const float step = ImGui::GetIO().DeltaTime * (target > sStickFade ? 12.0f : 4.0f);
+        sStickFade = target > sStickFade ? std::min(target, sStickFade + step) : std::max(target, sStickFade - step);
+    }
+    const float baseAlpha = (sState.stickHeld ? 0.85f : 0.55f) * sStickFade;
     ImTextureID capTex = gui->GetTextureByName("Analog-Stick");
     ImTextureID gateTex = gui->GetTextureByName("Analog-Stick Outline");
     // Housing/gate crop within the 327x175 frame (ring around the cap's spot).

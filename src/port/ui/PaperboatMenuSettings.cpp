@@ -316,6 +316,15 @@ void PaperboatMenu::AddMenuSettings() {
                 "controls are unaffected."
             )
         );
+    AddWidget(path, "Hide Joystick When Idle", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("HideStickIdle"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(false).Tooltip(
+                "The joystick is floating, so it appears wherever you touch. Turn this on to fade it out while "
+                "no finger is on it. It still shows in the layout editor."
+            )
+        );
     AddWidget(path, "Edit Touch Layout", WIDGET_BUTTON)
         .Options(
             ButtonOptions().Tooltip(

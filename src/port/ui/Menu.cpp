@@ -10,6 +10,8 @@
 #include <ship/window/gui/GuiElement.h>
 #include <ship/window/gui/GuiMenuBar.h>
 #include <spdlog/fmt/fmt.h>
+#include <algorithm>
+#include <imgui_internal.h>
 #include <tuple>
 #include <variant>
 
@@ -73,6 +75,40 @@ uint32_t GetVectorIndexOf(std::vector<std::string>& vector, std::string value) {
 }
 
 static bool raceDisableActive = false;
+
+// Swipe-to-scroll for the settings panes. A press that starts on a slider, text field or colour picker keeps
+// belonging to that widget; any other press that moves past the threshold scrolls the pane under the finger
+// and is cancelled for the widget it started on, so a swipe over a checkbox or button never toggles it.
+static bool sTouchScrollBlocked = false;
+static ImGuiID sTouchScrollWindow = 0;
+static bool sTouchScrolling = false;
+
+static void TouchDragScroll() {
+    ImGuiIO& io = ImGui::GetIO();
+    ImGuiWindow* win = ImGui::GetCurrentWindow();
+    if (!io.MouseDown[0]) {
+        if (sTouchScrollWindow == win->ID) {
+            sTouchScrollWindow = 0;
+            sTouchScrolling = false;
+        }
+        sTouchScrollBlocked = false;
+        return;
+    }
+    if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+        sTouchScrollWindow = win->ID;
+        sTouchScrolling = false;
+    }
+    if (sTouchScrollWindow != win->ID || sTouchScrollBlocked || win->ScrollMax.y <= 0.0f) {
+        return;
+    }
+    if (!sTouchScrolling && ImGui::IsMouseDragging(0, 10.0f)) {
+        sTouchScrolling = true;
+        ImGui::ClearActiveID();
+    }
+    if (sTouchScrolling) {
+        ImGui::SetScrollY(win, std::clamp(win->Scroll.y - io.MouseDelta.y, 0.0f, win->ScrollMax.y));
+    }
+}
 
 void Menu::InsertSidebarSearch() {
     menuEntries["Settings"].sidebars.emplace("Search", searchSidebarEntry);
@@ -586,6 +622,23 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
             default:
                 break;
         }
+        switch (widget.type) {
+            case WIDGET_SLIDER_INT:
+            case WIDGET_CVAR_SLIDER_INT:
+            case WIDGET_SLIDER_FLOAT:
+            case WIDGET_CVAR_SLIDER_FLOAT:
+            case WIDGET_INPUT:
+            case WIDGET_CVAR_INPUT:
+            case WIDGET_COLOR_PICKER:
+            case WIDGET_CVAR_COLOR_PICKER:
+            case WIDGET_SEARCH:
+                if (ImGui::IsItemActive()) {
+                    sTouchScrollBlocked = true;
+                }
+                break;
+            default:
+                break;
+        }
         if (widget.postFunc != nullptr) {
             widget.postFunc(widget);
         }
@@ -1006,6 +1059,7 @@ void Menu::DrawElement() {
             }
             //}
             if (useColumns) {
+                TouchDragScroll();
                 ImGui::EndChild();
             }
             if (i < columns - 1) {
@@ -1014,6 +1068,7 @@ void Menu::DrawElement() {
         }
     }
     if (!useColumns || menuSearchText.length() > 0) {
+        TouchDragScroll();
         ImGui::EndChild();
     }
 
