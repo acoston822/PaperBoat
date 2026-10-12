@@ -769,8 +769,12 @@ void TouchControlsOverlay::Draw() {
             if (rgb(button.ring) != rgb(IM_COL32(150, 150, 160, 255))) {
                 drawList->AddCircleFilled(button.center, r, rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f));
             }
-            drawList->AddCircle(button.center, r, rgb(button.ring) | alpha(button.pressed ? 1.0f : 0.9f), 0, stroke);
-            text(button.center, r * 0.95f, button.label, IM_COL32(255, 255, 255, 0) | alpha(0.95f));
+            // Ring as thick as the artwork outlines on the other buttons (about 13% of the diameter), kept inside
+            // the button's radius. No letter.
+            const float ring = r * 0.26f;
+            drawList->AddCircle(
+                button.center, r - ring * 0.5f, rgb(button.ring) | alpha(button.pressed ? 1.0f : 0.9f), 0, ring
+            );
             continue;
         }
         // Translucent color fill behind the colored round buttons (A, B, C, Start); the gray D-pad arms stay
