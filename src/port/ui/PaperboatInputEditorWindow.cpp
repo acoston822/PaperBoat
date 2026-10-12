@@ -1412,7 +1412,6 @@ void PaperboatInputEditorWindow::DrawMapping(
                 Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
             }
         }
-        PaperboatGui::TouchDragScroll();
         ImGui::EndCombo();
     }
     ImGui::Dummy(ImVec2(0.0f, 0.0f));

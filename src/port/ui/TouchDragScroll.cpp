@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace PaperboatGui {
 
@@ -25,9 +26,8 @@ void TouchDragScrollBlock() {
     sBlocked = true;
 }
 
-void TouchDragScroll() {
+static void Step(ImGuiWindow* win, bool hovered) {
     ImGuiIO& io = ImGui::GetIO();
-    ImGuiWindow* win = ImGui::GetCurrentWindow();
     const float dt = std::max(io.DeltaTime, 1.0f / 240.0f);
 
     // A new press stops any glide in progress.
@@ -56,7 +56,7 @@ void TouchDragScroll() {
         return;
     }
 
-    if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+    if (ImGui::IsMouseClicked(0) && hovered) {
         sPressWindow = win->ID;
         sScrolling = false;
         sVelocity = 0.0f;
@@ -73,6 +73,37 @@ void TouchDragScroll() {
         ImGui::SetScrollY(win, std::clamp(win->Scroll.y + delta, 0.0f, win->ScrollMax.y));
         // Smoothed so a pause before lifting the finger doesn't throw the list.
         sVelocity = sVelocity * 0.6f + (delta / dt) * 0.4f;
+    }
+}
+
+void TouchDragScroll() {
+    Step(ImGui::GetCurrentWindow(), ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows));
+}
+
+void TouchDragScrollPopups() {
+    ImGuiContext* g = ImGui::GetCurrentContext();
+    static int sLastFrame = -1;
+    if (g == nullptr || g->FrameCount == sLastFrame) {
+        return; // once per frame, whichever caller gets here first
+    }
+    sLastFrame = g->FrameCount;
+    for (ImGuiWindow* win : g->Windows) {
+        if (win == nullptr || !win->WasActive || !(win->Flags & ImGuiWindowFlags_Popup) ||
+            (win->Flags & (ImGuiWindowFlags_Tooltip | ImGuiWindowFlags_Modal | ImGuiWindowFlags_ChildWindow))) {
+            continue;
+        }
+        // The colour picker popup uses drags for its own controls.
+        if (std::strstr(win->Name, "picker") != nullptr) {
+            continue;
+        }
+        bool hovered = false;
+        for (ImGuiWindow* h = g->HoveredWindow; h != nullptr; h = h->ParentWindow) {
+            if (h == win) {
+                hovered = true;
+                break;
+            }
+        }
+        Step(win, hovered);
     }
 }
 

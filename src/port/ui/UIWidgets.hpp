@@ -700,7 +700,6 @@ bool Combobox(const char* label, T* value, const std::unordered_map<T, const cha
             }
         }
         ImGui::PopStyleVar();
-        PaperboatGui::TouchDragScroll();
         ImGui::EndCombo();
     }
 
@@ -784,7 +783,6 @@ bool Combobox(const char* label, T* value, const std::vector<const char*>& combo
             }
         }
         ImGui::PopStyleVar();
-        PaperboatGui::TouchDragScroll();
         ImGui::EndCombo();
     }
 
@@ -869,7 +867,6 @@ bool Combobox(const char* label, T* value, const std::vector<std::string>& combo
             }
         }
         ImGui::PopStyleVar();
-        PaperboatGui::TouchDragScroll();
         ImGui::EndCombo();
     }
 
@@ -957,7 +954,6 @@ bool Combobox(const char* label, T* value, const char* (&comboArray)[N], const C
             }
         }
         ImGui::PopStyleVar();
-        PaperboatGui::TouchDragScroll();
         ImGui::EndCombo();
     }
 

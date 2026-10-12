@@ -38,6 +38,8 @@ jobs:
           APP=$(find build-ios -name '*.app' -path '*Release-iphoneos*' -maxdepth 4 | head -1)
           echo "App bundle: $APP"
           test -n "$APP"
+          # Always ship our own icon, whatever an upstream merge did to ios/Icon.png.
+          cp ios/PaperReality-Icon.png "$APP/Icon.png"
           # Stamp the run number into the app so each build can be told apart:
           # it shows as the app's version/build and is printed at the top of Paperboat.log.
           PLIST="$APP/Info.plist"

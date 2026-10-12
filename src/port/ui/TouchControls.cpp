@@ -168,6 +168,16 @@ bool Enabled() {
     return CVarGetInteger(CVAR_TOUCH("Enabled"), TOUCH_CONTROLS_DEFAULT) != 0;
 }
 
+// True while a real game controller is attached (updated by ControllerMenuShortcut_Poll each input read).
+bool sControllerPresent = false;
+
+// Touch controls are hidden and ignored while a controller is connected, unless the user turned that off. The
+// layout editor always shows them so they can still be arranged.
+bool HiddenByController() {
+    return sControllerPresent && CVarGetInteger(CVAR_TOUCH("AutoHide"), 1) != 0 &&
+           CVarGetInteger(CVAR_TOUCH("EditMode"), 0) == 0;
+}
+
 // Widget heights are multiples of the layout unit; widths follow the cropped
 // sprite's aspect ratio so the art is never stretched.
 void ComputeLayout(OverlayState& state) {
@@ -237,6 +247,13 @@ void ComputeLayout(OverlayState& state) {
         b.disc = true;
         return b;
     };
+    // Same, but a rounded rectangle halfW x halfH (L and R).
+    const auto makeRoundRect = [&](uint16_t mask, const char* id, const char* label, const Rect& r, ImU32 ring,
+                                   ImVec2 center, float halfW, float halfH) {
+        TouchButton b = makeDisc(mask, id, label, r, ring, center, halfH);
+        b.halfW = halfW;
+        return b;
+    };
 
     state.stickTravel = 2.4f * u;
     state.nubRadius = 1.6f * u;
@@ -285,8 +302,12 @@ void ComputeLayout(OverlayState& state) {
     ));
     // Shoulder / trigger bars: L top-left (clear of the menu button), R and Z top-right.
     // Round, gray-ringed L/R slightly larger than A (1.5u); purple-ringed Z the same size as B (1.25u).
-    state.gameButtons.push_back(makeDisc(BTN_L, "L", "L", rL, kGray, ImVec2(7.6f * u, 1.9f * u), 1.65f * u));
-    state.gameButtons.push_back(makeDisc(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.4f * u, 1.9f * u), 1.65f * u));
+    state.gameButtons.push_back(
+        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(7.6f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+    );
+    state.gameButtons.push_back(
+        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.4f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+    );
     state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 4.4f * u, 5.1f * u), 1.25f * u));
     // D-pad cross on the left, above the stick area. Each texture is one arm
     // (with the shared hub), so adjacent placement reassembles the cross.
@@ -536,6 +557,17 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
     }
     sLastJoysticks = joysticks;
 
+    {
+        bool present = false;
+        for (int i = 0; i < joysticks; i++) {
+            if (SDL_IsGameController(i)) {
+                present = true;
+                break;
+            }
+        }
+        sControllerPresent = present;
+    }
+
     if (!sRegistered && joysticks > 0) {
         CVarRegisterInteger(CVAR_IMGUI_CONTROLLER_NAV, 1);
         sRegistered = true;
@@ -578,7 +610,7 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
         button.pressed = false;
     }
 
-    if (ImGui::GetCurrentContext() == nullptr || !Enabled()) {
+    if (ImGui::GetCurrentContext() == nullptr || !Enabled() || HiddenByController()) {
         sStickFinger = -1;
         return;
     }
@@ -713,7 +745,7 @@ void TouchControlsOverlay::InitElement() {
 }
 
 void TouchControlsOverlay::Draw() {
-    if (!sState.active || !Enabled()) {
+    if (!sState.active || !Enabled() || HiddenByController()) {
         return;
     }
 
@@ -777,18 +809,34 @@ void TouchControlsOverlay::Draw() {
 
     for (const auto& button : sState.gameButtons) {
         if (button.disc) {
-            const float r = button.halfH;
             // Gray buttons (L, R) are clear while idle; every disc fills with its ring color when pressed.
             const bool grayRing = rgb(button.ring) == rgb(IM_COL32(150, 150, 160, 255));
-            if (button.pressed || !grayRing) {
-                drawList->AddCircleFilled(button.center, r, rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f));
+            const bool filled = button.pressed || !grayRing;
+            const ImU32 fillCol = rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f);
+            const ImU32 ringCol = rgb(button.ring) | alpha(button.pressed ? 1.0f : 0.9f);
+            if (button.halfW > button.halfH * 1.05f) {
+                // L/R rounded rectangle. The ring keeps the thickness it had on the old 1.65u circle.
+                const float ringT = 1.65f * u * 0.26f;
+                const ImVec2 pMin(button.center.x - button.halfW, button.center.y - button.halfH);
+                const ImVec2 pMax(button.center.x + button.halfW, button.center.y + button.halfH);
+                const float rounding = button.halfH * 0.5f;
+                if (filled) {
+                    drawList->AddRectFilled(pMin, pMax, fillCol, rounding);
+                }
+                drawList->AddRect(
+                    ImVec2(pMin.x + ringT * 0.5f, pMin.y + ringT * 0.5f),
+                    ImVec2(pMax.x - ringT * 0.5f, pMax.y - ringT * 0.5f), ringCol,
+                    std::max(0.0f, rounding - ringT * 0.5f), 0, ringT
+                );
+            } else {
+                // Z circle: ring about as thick as the artwork outlines (13% of the diameter), no letter.
+                const float r = button.halfH;
+                const float ringT = r * 0.26f;
+                if (filled) {
+                    drawList->AddCircleFilled(button.center, r, fillCol);
+                }
+                drawList->AddCircle(button.center, r - ringT * 0.5f, ringCol, 0, ringT);
             }
-            // Ring as thick as the artwork outlines on the other buttons (about 13% of the diameter), kept inside
-            // the button's radius. No letter.
-            const float ring = r * 0.26f;
-            drawList->AddCircle(
-                button.center, r - ring * 0.5f, rgb(button.ring) | alpha(button.pressed ? 1.0f : 0.9f), 0, ring
-            );
             continue;
         }
         // Translucent color fill behind the colored round buttons (A, B, C, Start); the gray D-pad arms stay

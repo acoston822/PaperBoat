@@ -322,6 +322,15 @@ void PaperboatMenu::AddMenuSettings() {
                 "controls are unaffected."
             )
         );
+    AddWidget(path, "Hide With Controller", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("AutoHide"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(true).Tooltip(
+                "Hides the touch controls while a game controller is connected and brings them back when it is "
+                "disconnected. They always show in the layout editor."
+            )
+        );
     AddWidget(path, "Hide Joystick When Idle", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_TOUCH("HideStickIdle"))
         .RaceDisable(false)

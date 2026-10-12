@@ -16,6 +16,7 @@
 #include "port/ios/IosFilePicker.h"
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
+#include "ui/TouchDragScroll.h"
 #include "ui/PaperboatModMenuWindow.h"
 #ifdef __EMSCRIPTEN__
 #include "port/web/WebUtils.h"
@@ -898,6 +899,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
             ImGui::PopStyleColor(3);
             ImGui::PopStyleVar(3);
         }
+        PaperboatGui::TouchDragScrollPopups();
         gui->EndDraw();
         wnd->EndFrame();
         ImGui::PopStyleColor(2);
@@ -1410,6 +1412,7 @@ void GameEngine::RenderGuiFrame() const {
     gui->StartDraw();
     wnd->StartFrame();
     wnd->RunGuiOnly();
+    PaperboatGui::TouchDragScrollPopups();
     gui->EndDraw();
     wnd->EndFrame();
     OS_ViNotifyPresent();
