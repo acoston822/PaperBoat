@@ -765,7 +765,10 @@ void TouchControlsOverlay::Draw() {
     for (const auto& button : sState.gameButtons) {
         if (button.disc) {
             const float r = button.halfH;
-            drawList->AddCircleFilled(button.center, r, rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f));
+            // Gray buttons (L, R) stay completely clear; only colored ones (Z) get the tint.
+            if (rgb(button.ring) != rgb(IM_COL32(150, 150, 160, 255))) {
+                drawList->AddCircleFilled(button.center, r, rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f));
+            }
             drawList->AddCircle(button.center, r, rgb(button.ring) | alpha(button.pressed ? 1.0f : 0.9f), 0, stroke);
             text(button.center, r * 0.95f, button.label, IM_COL32(255, 255, 255, 0) | alpha(0.95f));
             continue;
