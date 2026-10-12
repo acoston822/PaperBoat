@@ -590,7 +590,8 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                                 gsFast3dWindow = nullptr;
                                 context = nullptr;
                                 exit(0);
-                            }
+                            },
+                            2.5f // greeting text and buttons are 2.5x for touch
                         );
 #else
                         PaperboatGui::RegisterPopup(

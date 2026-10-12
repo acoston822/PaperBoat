@@ -335,9 +335,21 @@ static void DrawModManager() {
                 msg += "\n" + std::to_string(skipped) + " skipped (only .o2r, .otr and .zip files work).";
             }
             if (added > 0) {
-                msg += "\n\nRestart PaperBoat to load them.";
+                msg += "\n\nIf the pack needs it, turn on \"Alternate Assets\" on this page.";
             }
             PaperboatGui::RegisterPopup("Add Files", msg.c_str());
+            if (added > 0) {
+                PaperboatGui::RegisterPopup(
+                    "Restart Required",
+                    "PaperBoat needs to restart to load new mods and use\nAlternate Assets.\n\n"
+                    "Restart Now closes the app. Open it again to finish.",
+                    "Restart Now", "Restart Later",
+                    []() {
+                        Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
+                        Ship::Context::GetRawInstance()->GetWindow()->Close();
+                    }
+                );
+            }
         });
     }
 #endif
