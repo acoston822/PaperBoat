@@ -33,6 +33,12 @@ static std::unordered_map<int32_t, const char*> imguiScaleOptions = {
     { 3, "X-Large" },
 };
 
+static const std::unordered_map<int32_t, const char*> hapticStrengthOptions = {
+    { 0, "Light" },
+    { 1, "Medium" },
+    { 2, "Strong" },
+};
+
 static const std::unordered_map<int32_t, const char*> menuThemeOptions = {
     { UIWidgets::Colors::Red, "Red" },
     { UIWidgets::Colors::DarkRed, "Dark Red" },
@@ -325,6 +331,25 @@ void PaperboatMenu::AddMenuSettings() {
                 "no finger is on it. It still shows in the layout editor."
             )
         );
+#if defined(__IOS__)
+    AddWidget(path, "Haptic Feedback", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("Haptics"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(true).Tooltip(
+                "Vibrates briefly each time you press an on-screen button."
+            )
+        );
+    AddWidget(path, "Haptic Strength", WIDGET_CVAR_COMBOBOX)
+        .CVar(CVAR_TOUCH("HapticStrength"))
+        .RaceDisable(false)
+        .Options(
+            ComboboxOptions()
+                .ComboMap(hapticStrengthOptions)
+                .DefaultIndex(1)
+                .Tooltip("How strong the vibration is when you press an on-screen button.")
+        );
+#endif
     AddWidget(path, "Edit Touch Layout", WIDGET_BUTTON)
         .Options(
             ButtonOptions().Tooltip(

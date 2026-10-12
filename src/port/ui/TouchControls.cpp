@@ -12,6 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include "cvar_prefixes.h"
+#include "port/ios/IosHaptics.h"
 
 #include <algorithm>
 #include <cmath>
@@ -561,6 +562,11 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
 }
 
 extern "C" void TouchControls_ApplyPad(void* pads) {
+    // Buttons held on the previous tick, for haptics on a fresh press. Cleared here so every early return
+    // below (disabled, menu open, layout editor) starts the next tick from "nothing held".
+    static uint16_t sPrevButtons = 0;
+    const uint16_t prevButtons = sPrevButtons;
+    sPrevButtons = 0;
     sState.active = false;
     sState.buttons = 0;
     sState.stickHeld = false;
@@ -679,6 +685,11 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
         );
     }
 
+    sPrevButtons = sState.buttons;
+    if (CVarGetInteger(CVAR_TOUCH("Haptics"), 1) != 0 && (sState.buttons & ~prevButtons) != 0) {
+        Paperboat::HapticTap(CVarGetInteger(CVAR_TOUCH("HapticStrength"), 1));
+    }
+
     if (pads == nullptr || Ship::Context::GetRawInstance()->GetControlDeck() == nullptr
         || Ship::Context::GetRawInstance()->GetControlDeck()->GamepadGameInputBlocked())
     {
@@ -765,8 +776,9 @@ void TouchControlsOverlay::Draw() {
     for (const auto& button : sState.gameButtons) {
         if (button.disc) {
             const float r = button.halfH;
-            // Gray buttons (L, R) stay completely clear; only colored ones (Z) get the tint.
-            if (rgb(button.ring) != rgb(IM_COL32(150, 150, 160, 255))) {
+            // Gray buttons (L, R) are clear while idle; every disc fills with its ring color when pressed.
+            const bool grayRing = rgb(button.ring) == rgb(IM_COL32(150, 150, 160, 255));
+            if (button.pressed || !grayRing) {
                 drawList->AddCircleFilled(button.center, r, rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f));
             }
             // Ring as thick as the artwork outlines on the other buttons (about 13% of the diameter), kept inside
