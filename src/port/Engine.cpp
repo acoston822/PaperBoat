@@ -83,6 +83,12 @@ const float imguiScaleOptionToValue[4] = { 1.25f, 1.66f, 2.1f, 3.1f };
 std::shared_ptr<Fast::Fast3dWindow> gsFast3dWindow;
 Ship::Context* gShipContext = nullptr;
 const uint32_t defaultImGuiScale = 1;
+// First-launch boxes (welcome, ROM found, unsupported ROM) are 2.5x on iOS, where they are read on a touch screen.
+#if defined(__IOS__)
+constexpr float kFirstRunPopupScale = 2.5f;
+#else
+constexpr float kFirstRunPopupScale = 1.0f;
+#endif
 int32_t previousImGuiScaleIndex = -1;
 float previousImGuiScale = defaultImGuiScale;
 
@@ -591,7 +597,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                                 context = nullptr;
                                 exit(0);
                             },
-                            2.5f // greeting text and buttons are 2.5x for touch
+                            kFirstRunPopupScale
                         );
 #else
                         PaperboatGui::RegisterPopup(
@@ -653,7 +659,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                                     "Unsupported ROM",
                                     "That file isn't a supported Paper Mario ROM.\n\n"
                                     "Choose a .z64 ROM of Paper Mario (N64).",
-                                    "OK", "", [&]() { promptStep = PS_FILE_CHECK; }
+                                    "OK", "", [&]() { promptStep = PS_FILE_CHECK; }, nullptr, kFirstRunPopupScale
                                 );
                                 return;
                             }
@@ -682,7 +688,8 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                                 [&]() {
                                     args.clear();
                                     promptStep = PS_FIRST;
-                                }
+                                },
+                                kFirstRunPopupScale
                             );
                         } else {
                             promptStep = PS_FIRST;
