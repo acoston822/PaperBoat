@@ -57,6 +57,9 @@ struct TouchButton {
     float halfW;
     float halfH;
     bool pressed;
+    // Drawn as a vector disc (colored outline + label) instead of the bar artwork: L, R and Z.
+    bool disc;
+    ImU32 ring;
 };
 
 struct Finger {
@@ -194,6 +197,7 @@ void ComputeLayout(OverlayState& state) {
     const ImU32 kYellow = IM_COL32(250, 190, 30, 255);
     const ImU32 kRed = IM_COL32(220, 60, 60, 255);
     const ImU32 kGray = IM_COL32(150, 150, 160, 255);
+    const ImU32 kPurple = IM_COL32(160, 90, 230, 255);
 
     // The default center can be overridden by a saved custom position (edit mode).
     const auto make = [w,
@@ -217,6 +221,17 @@ void ComputeLayout(OverlayState& state) {
         b.halfH = halfH;
         b.halfW = halfH * Aspect(r);
         b.pressed = false;
+        b.disc = false;
+        b.ring = color;
+        return b;
+    };
+    // Round shoulder/trigger buttons: a circle of radius r with a colored outline.
+    const auto makeDisc = [&](uint16_t mask, const char* id, const char* label, const Rect& r, ImU32 ring,
+                              ImVec2 center, float radius) {
+        TouchButton b = make(mask, id, label, "", "", "", "", r, ring, 0, 0, center, radius);
+        b.halfW = radius;
+        b.halfH = radius;
+        b.disc = true;
         return b;
     };
 
@@ -247,8 +262,8 @@ void ComputeLayout(OverlayState& state) {
     ));
     // C buttons in a diamond, above the face buttons.
     const ImVec2 c(w - 3.3f * u, h - 8.8f * u);
-    const float cOff = 1.5f * u;
-    const float cR = 0.85f * u;
+    const float cOff = 1.6f * u;
+    const float cR = 0.95f * u;
     state.gameButtons.push_back(make(
         BTN_CUP, "CUp", "C", "C-Up", "textures/buttons/CUp.png", "C-Up Outline", "textures/buttons/CUpOutline.png",
         rCUp, kYellow, 0, -1, ImVec2(c.x, c.y - cOff), cR
@@ -266,18 +281,10 @@ void ComputeLayout(OverlayState& state) {
         "textures/buttons/CRightOutline.png", rCRight, kYellow, 1, 0, ImVec2(c.x + cOff, c.y), cR
     ));
     // Shoulder / trigger bars: L top-left (clear of the menu button), R and Z top-right.
-    state.gameButtons.push_back(make(
-        BTN_L, "L", "L", "L-Btn", "textures/buttons/LBtn.png", "L-Btn Outline", "textures/buttons/LBtnOutline.png", rL,
-        kGray, 0, 0, ImVec2(7.5f * u, 1.6f * u), 0.55f * u
-    ));
-    state.gameButtons.push_back(make(
-        BTN_R, "R", "R", "R-Btn", "textures/buttons/RBtn.png", "R-Btn Outline", "textures/buttons/RBtnOutline.png", rR,
-        kGray, 0, 0, ImVec2(w - 4.2f * u, 1.6f * u), 0.55f * u
-    ));
-    state.gameButtons.push_back(make(
-        BTN_Z, "Z", "Z", "Z-Btn", "textures/buttons/ZBtn.png", "Z-Btn Outline", "textures/buttons/ZBtnOutline.png", rZ,
-        kGray, 0, 0, ImVec2(w - 4.2f * u, 3.4f * u), 0.55f * u
-    ));
+    // Round, gray-ringed L/R slightly larger than A (1.5u); purple-ringed Z the same size as B (1.25u).
+    state.gameButtons.push_back(makeDisc(BTN_L, "L", "L", rL, kGray, ImVec2(7.6f * u, 1.9f * u), 1.65f * u));
+    state.gameButtons.push_back(makeDisc(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.4f * u, 1.9f * u), 1.65f * u));
+    state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 4.4f * u, 5.1f * u), 1.25f * u));
     // D-pad cross on the left, above the stick area. Each texture is one arm
     // (with the shared hub), so adjacent placement reassembles the cross.
     const ImVec2 d(3.4f * u, h - 9.8f * u);
@@ -712,6 +719,9 @@ void TouchControlsOverlay::Draw() {
             }
         };
         for (const auto& button : sState.gameButtons) {
+            if (button.disc) {
+                continue;
+            }
             ensure(button.texName, button.texPath);
             ensure(button.outlineName, button.outlinePath);
         }
@@ -753,6 +763,21 @@ void TouchControlsOverlay::Draw() {
     }
 
     for (const auto& button : sState.gameButtons) {
+        if (button.disc) {
+            const float r = button.halfH;
+            drawList->AddCircleFilled(button.center, r, rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f));
+            drawList->AddCircle(button.center, r, rgb(button.ring) | alpha(button.pressed ? 1.0f : 0.9f), 0, stroke);
+            text(button.center, r * 0.95f, button.label, IM_COL32(255, 255, 255, 0) | alpha(0.95f));
+            continue;
+        }
+        // Translucent color fill behind the colored round buttons (A, B, C, Start); the gray D-pad arms stay
+        // unfilled. Brighter while pressed, but always see-through.
+        if (rgb(button.color) != rgb(IM_COL32(150, 150, 160, 255))) {
+            drawList->AddCircleFilled(
+                button.center, std::min<float>(button.halfW, button.halfH),
+                rgb(button.color) | alpha(button.pressed ? 0.55f : 0.22f)
+            );
+        }
         ImTextureID solidTex = gui->GetTextureByName(button.texName);
         ImTextureID outlineTex = gui->GetTextureByName(button.outlineName);
         if (solidTex != nullptr || outlineTex != nullptr) {
