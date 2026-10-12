@@ -13,6 +13,7 @@
 #include "port/os/OS.h"
 #include "port/DevTools/ThreadWatchdog.h"
 #include "port/TextureCache.h"
+#include "port/ios/IosFilePicker.h"
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
 #include "ui/PaperboatModMenuWindow.h"
@@ -137,6 +138,8 @@ typedef enum PromptSteps {
     // Web only: no folder to scan, so the user is asked outright.
     PS_WEB_CHOICE,
     PS_WEB_UPLOAD,
+    // iOS only: the Files picker is open for the first-run ROM import.
+    PS_IOS_PICK,
     PS_NONE,
 } PromptSteps;
 
@@ -566,6 +569,28 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                         }
 #ifdef __EMSCRIPTEN__
                         promptStep = PS_WEB_CHOICE;
+#elif defined(__IOS__)
+                        // A ROM already in the app's folder (e.g. put there with the Files app) skips the greeting
+                        // and goes straight to the generate prompt.
+                        if (!GameExtractor::FindSupportedRoms({ installPath, Ship::Context::GetAppDirectoryPath("boat") })
+                                 .empty()) {
+                            promptStep = PS_LOCAL;
+                            continue;
+                        }
+                        // First launch: greet, then ask for the user's own copy of the game.
+                        PaperboatGui::RegisterPopup(
+                            "Welcome to PaperBoat",
+                            "To get started, PaperBoat needs your own copy of\nPaper Mario (Nintendo 64).\n\n"
+                            "Choose your ROM file to import it. It stays on\nthis device and is only used to "
+                            "create the game files.",
+                            "Open Files", "Cancel", [&]() { promptStep = PS_IOS_PICK; },
+                            [&]() {
+                                threadPool = nullptr;
+                                gsFast3dWindow = nullptr;
+                                context = nullptr;
+                                exit(0);
+                            }
+                        );
 #else
                         PaperboatGui::RegisterPopup(
                             "No O2R Files", "No O2R files found. Generate one now?", "Yes", "No",
@@ -600,6 +625,38 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                         } else {
                             promptStep = PS_WEB_CHOICE;
                         }
+                        continue;
+                    }
+#endif
+#ifdef __IOS__
+                    case PS_IOS_PICK: {
+                        promptStep = PS_WAIT;
+                        Paperboat::IosPickFile([&](std::string picked) {
+                            if (picked.empty()) {
+                                promptStep = PS_FILE_CHECK; // cancelled in the picker: show the greeting again
+                                return;
+                            }
+                            // Put the ROM where the extractor looks for it, then drop the picker's temp copy.
+                            const std::string appDir = Ship::Context::GetAppDirectoryPath("boat");
+                            const std::filesystem::path dest = std::filesystem::path(appDir) / "baserom.us.z64";
+                            std::error_code ec;
+                            std::filesystem::create_directories(appDir, ec);
+                            std::filesystem::copy_file(
+                                picked, dest, std::filesystem::copy_options::overwrite_existing, ec
+                            );
+                            std::filesystem::remove(picked, ec);
+                            if (ec || GameExtractor::FindSupportedRoms({ appDir }).empty()) {
+                                std::filesystem::remove(dest, ec);
+                                PaperboatGui::RegisterPopup(
+                                    "Unsupported ROM",
+                                    "That file isn't a supported Paper Mario ROM.\n\n"
+                                    "Choose a .z64 ROM of Paper Mario (N64).",
+                                    "OK", "", [&]() { promptStep = PS_FILE_CHECK; }
+                                );
+                                return;
+                            }
+                            promptStep = PS_LOCAL; // continues to the "generate the game files" prompt
+                        });
                         continue;
                     }
 #endif
