@@ -14,6 +14,7 @@
 #include "cvar_prefixes.h"
 #include "port/ios/IosHaptics.h"
 #include "PaperboatGui.hpp"
+#include "TouchDragScroll.h"
 #include "UIWidgets.hpp"
 
 #include <algorithm>
@@ -745,6 +746,9 @@ void TouchControlsOverlay::InitElement() {
 }
 
 void TouchControlsOverlay::Draw() {
+    // This window is drawn every frame in-game, so it also drives swipe scrolling for open dropdown lists. It runs
+    // before the touch-control early returns so it works with touch controls off or hidden by a controller.
+    PaperboatGui::TouchDragScrollPopups();
     if (!sState.active || !Enabled() || HiddenByController()) {
         return;
     }
